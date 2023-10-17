@@ -37,6 +37,83 @@
   创建堆区数组：
   ```c++
   int* func() {
-    
+    int *a = new int[10];
+    return a;
   }
   ```
+  关于堆区数组的释放：
+  ```c++
+  int main() {
+    int* p = func();
+    cout << *p << endl;
+    delete[] p;
+    return 0;
+  }
+  ```
+
+## 继承
+### 友元
+友元可以访问到该类中的private
+```c++
+class room{
+  //全局函数作为友元
+  friend void func();
+
+  //类作为友元
+  friend class gay();
+
+  //类成员作为友元
+  friend void gay::looklook();
+};
+```
+
+### 继承
+继承语法：
+```c++
+class A : pubilc class B{  //公有方式继承
+  ...
+}
+```
+关于继承的方式：
+![Alt text](image-13.png)
+
+继承中调用构造函数的顺序为：先调用父类，再调用子类。
+
+子类父类中具有同名变量或同名函数的情况：
+```c++
+//父类
+class Base{
+public:
+  int m_a = 10;
+
+  void func(){
+    cout << "base fun" << endl;
+  }
+
+  void func(int a){
+    cout << "base int fun" << endl;
+  }
+};
+
+//子类
+class Son : pubilc class Base{  
+public:
+  int m_a = 20;
+
+  void func(){
+    cout << "son fun" << endl;
+  }
+};
+
+void test(){
+  Son s;
+  int a = s.m_a;  //10
+  int a = s.Base::m_a;  //20，这里的意思是加入作用域
+
+  s.func();  //会隐藏所有的父类同名函数，输出为子函数
+  s.Base::func();  //这样调用父类的函数
+  s.Base::func(a);
+  int a = Son::m_a;  //通过类名调用子类参数
+  int a = Son::Base::m_a;  //想要调用父类同名参数
+}
+```
