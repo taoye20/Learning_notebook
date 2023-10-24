@@ -385,3 +385,237 @@ int main() {
 ```
 
 可以看到我多态也好，抽象类也好，其目的就是：搭建一个父类的样板，然后不同属性的子类分别继承并重写这些特定的成员，以达到实现不同功能的一类物品。最后采用封装使用的思想，通过其成员函数提供的功能一个个的使用这些物品。
+
+## 实战问题散记
+### const用法
+代码double real () const {return val;}中，const位于函数签名的末尾，表示该方法是一个常量成员函数，这意味着这个成员函数不能修改它所属的对象。因此，这个函数可以被一个const对象调用，而且在函数体内不能修改任何非静态成员变量。这对于保证数据的安全性和一致性非常有用。
+
+### Singleton设计模式
+将构造函数放入private中：
+```c++
+class A {
+public:
+  static A& getInstance();
+  setup(){...}
+
+private:
+  A();
+  A(const A& rhs);
+  ...
+
+  A& A::getInstance() {
+    static A a;
+    return a;
+  }
+};
+```
+
+首先getInstance函数的返回类型是通过reference来接收的，通常提倡使用引用传递参数或接收返回参数。
+
+### 运算符重载的本质
+```c++
+//一般理解的写法
+class Complex{
+public:
+  Complex Addfunc(const Complex& p){
+    Complex res;
+    res.real = this->real + p.real;
+    res.imaginary = this->imaginary + p.imaginary;
+    return res;
+  }
+
+private:
+  int real;
+  int imaginary;
+};
+
+void test(){
+  ...
+  Complex p3 = p1.Addfunc(p2);
+}
+
+
+//调用库给出的operator的写法
+class complex
+{
+public:
+  complex (double r = 0, double i = 0): re (r), im (i) { }
+  complex& operator += (const complex&);
+  private:
+  double re, im;
+
+  friend complex& __doapl (complex *, const complex&);  //只有friend后，才能直接访问complex中的参数
+};
+
+inline complex   //这里的返回参数不是引用而是对象，是因为返回对象在函数内创建，调用完函数后函数结束回收变量，那么如果调用引用指向函数内分配的那个地址就是个bad值
+operator + (const complex& x, const complex& y)
+{
+  return complex (real (x) + real (y), imag (x) + imag (y));
+}
+
+void test(){
+  complex p3 = p1 + p2; 
+}
+
+
+//更明显的例子
+inline complex&  //返回引用是因为对象在函数外被创建的，因此使用引用传递快，且可以直接改变对象值
+__doapl (complex* ths, const complex& r)  //注意这里加入const的原因应当提前考虑，不希望改变被加数，那么就养成良好的习惯
+{
+  ths->re += r.re;
+  ths->im += r.im;
+  return *ths;
+}
+ 
+inline complex&
+complex::operator += (const complex& r)
+{
+  return __doapl (this, r);
+  //this->re += r.re;
+  //this->im += r.im;
+  //return *this;
+}
+
+void test(){
+  complex p2 += p1; //p2调用+=成员，p2在operator += 中是this
+}
+```
+
+### 链式编程
+同样举例为上面的例子：
+```c++
+inline complex&  
+__doapl (complex* ths, const complex& r)  被加数，那么就养成良好的习惯
+{
+  ths->re += r.re;  //因为传入指针，所以操作是在原地址上操作的。
+  ths->im += r.im;
+  return *ths;
+}
+ 
+inline complex&  //这里返回类型为void可以不？可以！因为this中的参数在上面的函数中已经被改变了，那为什么要返回complex&类型呢？
+complex::operator += (const complex& r)
+{
+  return __doapl (this, r);
+}
+
+void test(){
+  complex p2 += p1; 
+  //考虑下面一行代码
+  complex p3 += p2 += p1;  //如果p2+=p1返回的是void，那么p3就无法继续进行了，返回complex&，那么p2+=p1又可以看成一个complex类型的值，继续参与p3的计算
+}
+```
+
+### new malloc和实际物理分配地址
+new时会在堆区分配所需大小的内存空间，在这片空间的前后还要分别加入四个字节的名为cookie的空间，用于标志这片内存空间的大小，以便在free的时候可以分辨出删除的大小。
+
+同时在分配地址不足16字节倍数大小时，会添加pad以达到16字节的倍数，因为地址指针指定的地址的物理间隔是那么多。
+
+![Alt text](image-24.png)
+
+### 静态变量和静态函数的讨论
+在一般非静态成员函数中系统会自动分配this指针，每次一个新的对象调用该函数时，创建的this指针指向都是不一样的，都是创建了新的地址和空间（浅拷贝除外）。
+
+但static变量是存在全局区的，所有调用都指向同一个地址，一个对象对它做的改变，在其他对象中也会受到影响。
+
+静态函数没有this指针，调用它的对象是指不到自己的，所以静态函数只能用于处理静态变量。
+
+回到singleton的例子：
+
+```c++
+class A {
+public:
+  static A& getInstance();  //该函数由于static，只能用于处理全局区的static
+  setup(){...}
+
+private:
+  A();   //构造函数在private中，无法被外界用于创建对象，只能自己创建
+  A(const A& rhs);
+  ...
+
+  A& A::getInstance() {   //通过类名调用成员函数
+    static A a;    //创建全局区唯一一个对象，使用static，由类自己创建
+    return a;
+  }
+};
+
+void test(){
+  A::getInstance().setup();  //在使用时，通过类名创建那个唯一的对象，并使用其中的功能
+}
+```
+### 类模板，函数模板和成员模板
+类模板：对于一个类，其里面的参数类型可以后面指定，调用时就是类名加<...>
+
+```c++
+template<typename T>  //T在下面的类中就是一个类型名的标志，不指定是int，double或float
+class complex
+{
+public:
+  complex (T r = 0, T i = 0) : re (r), im (i) { }
+  complex& operator += (const complex&);
+  T real () const { return re; }
+  T imag () const { return im; }
+
+private:
+  T re, im;
+  friend complex& __doapl (complex*, const complex&); 
+};
+
+//调用
+complex<double> c1(2.5,1.5);  //这时再指定变量类型
+complex<int> c2(2,6);
+```
+
+函数模板：函数只是一个半成品，只定义功能，而不需要管进来和返回的是什么类，之后再指定。使用时函数只用传递进相应的类型就可以实现功能输出。
+
+![Alt text](image-25.png)
+
+成员模板：在类中的成员函数接收不同于类模板类型的模板，其在标准库中的构造函数中比较常见，主要是增加弹性，如下面代码可以实现子对象拷贝构造一个父对象。
+
+![Alt text](image-30.png)
+
+### 委托和复合
+* 委托：我类中有一个指针指向另一个类，但是这个类什么时候创建，里面有什么和我关系不大。
+* 复合：在我这个类里创建了一个另一个类的对象，并调用这个对象中的功能来实现我的一些功能。
+* 委托是虚的，提供了一个指针接口，只有当另一个类实例化了对象，来调用我的函数实现我内部的操作（两个类的对象创建没有直接的依赖关系，可以不同时出现）。复合是实的，先创建被复合的对象，再创建我的对象（一个嵌套关系，queue和deque的关系）；
+
+### 一份数据多份访问的代码（委托）
+![Alt text](image-26.png)
+
+### win下的文件系统
+![Alt text](image-27.png)
+
+
+
+### 转换函数
+```c++
+class Fraction{
+public:
+  Fraction(int a, int b) : m_a(a), m_b(b) {}
+  operator double() const {
+    return (double) (a/b);
+  }
+private:
+  int m_a;
+  int m_b;
+}
+
+Fraction f(3, 5);
+double d = 4 + f; //其含义为：编译器寻找上面的f的定义，发现返回double类型，4也可以是double，因此将double类型的f和double的4相加。
+```
+
+关于该知识点可以看侯捷pdf这里：
+
+![Alt text](image-28.png)
+
+### 迭代器和仿函数
+![Alt text](image-29.png)
+
+```c++
+//考虑上图中的使用方法：
+list<Foo>::iterator tie;  
+*tie;  //需要返回节点的data
+tie->method();  //需要返回节点的指针
+```
+
+
+

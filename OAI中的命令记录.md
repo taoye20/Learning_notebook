@@ -10,6 +10,10 @@ docker exec -it <docker_id> bash  #exec 命令用于在容器内部执行命令�
 docker logs oai-amf  #查询连接UE的注册情况
 
 docker network inspect demo-oai-public-net #查看所有oai docker网桥信息
+
+docker network ls  #可以列出当前宿主机上运行的docker网路。
+
+docker exec oai-ext-dn ping 12.1.1.4 -c4  #应当尝试的命令
 ```
 
 ![Alt text](image-23.png)
@@ -20,3 +24,4 @@ docker network inspect demo-oai-public-net #查看所有oai docker网桥信息
 * UPF(SPGWU) 192.168.70.134
 * SMF 192.168.70.133
 * NRF 192.168.70.130
+
