@@ -386,9 +386,60 @@ int main() {
 
 可以看到我多态也好，抽象类也好，其目的就是：搭建一个父类的样板，然后不同属性的子类分别继承并重写这些特定的成员，以达到实现不同功能的一类物品。最后采用封装使用的思想，通过其成员函数提供的功能一个个的使用这些物品。
 
+## 运算符重载
+```c++
+template<typename T>
+class Person {
+public:
+    Person(string name, T age) : m_name(name), m_age(age) {}
+
+    bool operator < (const Person& person) const {  //在第一次编写时这里传入参数没有使用const，导致在Min调用时传入参数为const而无法由这个运算符重载接收。
+        return this->m_age < person.m_age;
+    }
+
+    string getName() const {
+        return m_name;
+    }
+
+    T getAge() const {
+        return m_age;
+    }
+private:
+    string m_name;
+    T m_age;
+};
+
+template<class class_type>
+inline
+const class_type& Min(const class_type& A, const class_type& B) {
+    return A < B ? A : B;
+}
+
+int main() {
+    Person<int> p1("xx", 24);
+    Person<int> p2("ty", 23);
+    cout << (p1 < p2) << endl;
+    cout << Min(p1, p2).getName() << endl;
+    return 0;
+}
+```
+
+new和delete的重载：
+
+![Alt text](image-32.png)
+
+这个重载的目的是cout出来我创建的大小，可以用于观察。
+
 ## 实战问题散记
+### 为什么传递引用
+引用可以改变传递的参数，实现指针的功能。同时，如果我写了一个函数，当陌生人调用时，调用的写法传递值和传递引用时是一模一样的，方便书写：`min(a, b)`我不需要知道传递进去的是通过引用传递还是值传递，都可以这么书写，至于采用哪种传递就是看设计者的事情了。
+
 ### const用法
 代码double real () const {return val;}中，const位于函数签名的末尾，表示该方法是一个常量成员函数，这意味着这个成员函数不能修改它所属的对象。因此，这个函数可以被一个const对象调用，而且在函数体内不能修改任何非静态成员变量。这对于保证数据的安全性和一致性非常有用。
+
+![Alt text](image-31.png)
+
+像下面这样调用对象的成员函数，如果设计时没有写`void print() const {..}`中的const的话，就会出现报错，报错原因是常量调用了非常函数，函数说我可变你这个对象，对象说我不可变。这说明我设计函数时不够好。
 
 ### Singleton设计模式
 将构造函数放入private中：
@@ -480,6 +531,10 @@ void test(){
   complex p2 += p1; //p2调用+=成员，p2在operator += 中是this
 }
 ```
+
+可以重载的格式：
+
+![Alt text](image-35.png)
 
 ### 链式编程
 同样举例为上面的例子：
@@ -573,6 +628,15 @@ complex<int> c2(2,6);
 
 ![Alt text](image-30.png)
 
+模板的组合起名：
+```c++
+template<typename T, class xxx = deque<T>>
+class queue {
+  ...
+  xxx c; //即为deque<T>类型的c
+}
+```
+
 ### 委托和复合
 * 委托：我类中有一个指针指向另一个类，但是这个类什么时候创建，里面有什么和我关系不大。
 * 复合：在我这个类里创建了一个另一个类的对象，并调用这个对象中的功能来实现我的一些功能。
@@ -617,5 +681,284 @@ list<Foo>::iterator tie;
 tie->method();  //需要返回节点的指针
 ```
 
+仿函数就是重载（）符号，在使用时看起来像对象是一个函数的样子：class A（），所以叫仿函数。仿函数与构造函数不同，前面是需要加入返回参数类型的。
+
+仿函数的优点在于：可以使用模板使得函数非常灵活，能被不同的类调用。如果是使用class构造函数来定义，那结果返回还要多出定义一个方法来返回值，而仿函数可以直接名称加括号使用，仿函数速度快，效率高。
 
 
+### 模板特化
+```c++
+template<class T>
+class Person{  //没有特化
+  ...
+};
+
+
+class Person<T*>{  //这里指明了传入参数要是一个指针，偏特化
+  ...
+};
+
+template<>
+class Person<string>{    //特化
+  ...
+}
+
+
+//使用时
+Person<string> person;
+Person<string*> person;  //类模板和函数模板的区别：类模板使用时要自己声明类型，而函数模板一般是编译器自动推理
+```
+
+![Alt text](image-36.png)
+
+
+### 继承中调用虚函数
+在继承中，如果是普通函数，那么子类和父类指向的函数的地址是一样的，但是如果父类定义的是虚函数，虚函数只是一个指针指向函数表。
+
+
+## STL标准模板库编程
+### 基础
+![Alt text](image-33.png)
+
+
+### 分配器
+为容器分配内存。关于new和malloc以及delete和free：
+```c++
+void* operator new (size_t size, ..) {  //第一个参数必定是size_t类型
+  void* p;
+  p = malloc(size);  //new就是在调用malloc
+  return p;
+}
+```
+在前例中可以得知，malloc其实在物理上不止分配size，还有分配头尾等其他的存储空间。
+
+allocator直接使用了new和delete，但是我们不必要去使用它，因为容器使用它的方法已经在标准库写好了。
+
+### OOC和GP的区别
+一般我们设计一个class，其成员函数和数据都在这个class中定义，这种一起设计的概念就是OOC，但是GP设计将其分开，并使用iterator连接起来，可以实现容器和算法分开开发而不用一块开发。
+
+![Alt text](image-34.png)
+
+该图中的sort作为全局函数，可以被这些容器调用，这个函数只用写一次就能被vector和deque调用，但是注意：**list不能使用该全局函数，还是要在list class中自己写sort，因为list不支持随机访问，在全局sort中有随机访问特性的逻辑**
+
+
+### 容器之间的复合关系
+![Alt text](image-37.png)
+
+重要的是那几个常用的容器。
+
+
+## 容器
+### 迭代器设计标准
+为了算法能够知道迭代器的一些性质（迭代器类型：双向链表or随机访问，迭代器指向的值类型，迭代器的间距最大范围等等5个特性），这名称不可以乱取，也是迭代器中进来就使用typedef取名的原因。
+
+![Alt text](image-40.png)
+
+但在中间容易出现一个问题，万一我调用该算法时传入的参数不是一个迭代器，仅仅只是一个指针，那么指针又没有定义这5个特性，所以出现了trait，用于转化一下指针，使其符合算法时设计的标准。
+
+![Alt text](image-41.png)
+
+其实现方法如下：
+
+![Alt text](image-42.png)
+
+### list
+在list中关注迭代器的实现：（也包含了list的基本构成）
+```c++
+class list{
+public:
+  typedef __list_iterator<T, T&, T*> iterator; //那么去找这个__list_iterator定义
+};
+```
+
+![Alt text](image-38.png)
+
+相当于在这迭代器里创建了一个节点的指针，并对这个指针进行相应的操作，对外展现时通过重载*，++等使得iterator看起来可以像一个指针一样使用。
+
+![Alt text](image-39.png)
+
+* 注意*重载在其他的符号重载函数中调用*this时为什么没有唤起*重载。
+* operator++()代表前++，即++i。operator++(int)中int不必传入参数，只是用于区分前++和后++，这里代表的是后++。
+
+
+### vector
+* 容器的iterator的类型就是单纯的指针，经过了trait处理。++--全部都是原本指针所带的操作。
+* vector类中定义了三个基本指针，指向开头begin，数据的结尾finish（end），以及分配的存储空间的结尾end_of_storage。size = finish-begin，capacity = end_of_storage-begin。由此可以看出差别。
+* 当容量不够时（finish==end_of_storage），将进行二倍扩容并拷贝原所有数据到新内存中，耗时。
+
+### deque
+![Alt text](image-43.png)
+
+一个deque iterator中包含了四个变量
+
+```c++
+T* cur;
+T* first;
+T* last;
+T** node;
+```
+
+四个变量的原理如图所示，如果push_front，那么首先对比cur有没有到(*node)，如果到了就添加node，没有就直接添加在cur的地址前面。
+
+对于deque iterator的指针移动，我们使用了运算符重载使得它看起来像是连续的。就比如重载++
+
+```c++
+self& operator ++ () {
+  ++cur;
+  if(cur == last){
+    set_node(node + 1);
+    cur = first;
+  }
+  return *this;
+}
+
+self& operator ++ (int) { //后++
+  self tmp = *this;
+  ++tmp;    //使用已有的++重载
+  return tmp;
+}
+
+void set_node(T** newnode){
+  node = newonde;
+  first = *node;
+  last = first + difference_type(buffer_size); //加上一个内存小段的距离
+}
+```
+
+queue和stack完全使用了deque提供的成员函数，在有queue和stack以前都会创建一个deque对象，但是不同的地方在于这两个容器不能有iterator，以及没有完全使用deque的成员函数。
+
+### 红黑树
+红黑树是一个“平衡”二元“搜索”树，平衡保证不会有太长的枝，搜索保证查找速率。
+
+![Alt text](image-44.png)
+
+在RB tree中有个输入的类型，其中value为节点里存储的class，key包含在value内，所以要制指定keyofvalue，compare为比较方式，由外部指定，内部只做算法的事情。一个value中包含的一般是一个key和一个data。
+
+### set, multiset, map, multimap
+set中的value就是key，没有data。
+
+都是直接使用了红黑树提供的方法，set和map只是对其进行一些调用和用法方面的设计。其中map的重载[]比较有意思，会有先判断传入的key是否存在，不存在的话会有一个insert的过程。
+
+### 哈希表
+哈希表的原理：
+
+我们希望通过标签直接寻找到一个东西，那么我们可以考虑设置一系列的篮子（内存），按照某种规律排列。打比方，如果一个标签为三个英文字符，那么我设计一个26\*26\*26大小的内存，aaa放在第一个，aab放第二个，以此类推，以一定规律或映射算法来实现存储。
+
+但是这有所不好，因为我的内存分配大小等于所有的组合的数量，太消耗了，如果我只存一两个元素，那太浪费了。
+
+所以设置了一个较小的空间，那么存储方式如下：
+
+![Alt text](image-45.png)
+
+那万一两个元素被分配到同一个位置怎么办，比如M=100，105和5都会被分配到同一个位置，这叫**哈希碰撞**，碰到哈希碰撞就长链条呗。
+
+![Alt text](image-46.png)
+
+当链条过长时，就需要两倍（选择一个将近两倍大小的质数个数的篮子）扩容bucket，然后全部重新计算，这个阶段比较耗时。目前哈希表的STL使用是通过unordered_set和map来使用。
+
+
+## 迭代器
+### 第一参数：iterator_category
+创建一个临时对象的方法：
+```c++
+vector<int>::iterator() //在方法后面加个小括号
+```
+之前这个参数在介绍是：表示这个迭代器的类型。类型如下：
+
+![Alt text](image-47.png)
+
+在定义容器时会创建iterator，这时会指定这个迭代器的类型，方便函数在使用容器时（算法只能看到输入的迭代器，而看不到容器），可以询问到迭代器的类型，不同类型的迭代器，在算法中的使用方法是不同的，如下，有一个计算两个迭代器距离的算法，算法传入两个迭代器后，查询迭代器的类型，并根据类型选择了不同的：
+
+![Alt text](image-48.png)
+
+再举个例子，为了拷贝效率更高，我们不会使用一个通用的拷贝算法来实现，而是通过判断迭代器类型来具体的设计拷贝算法：
+
+![Alt text](image-49.png)
+
+## 算法
+### 各种算法例子
+首先注意：**标准库中提供的函数传入参数是迭代器或指针**，注意下面例子。
+
+![Alt text](image-50.png)
+
+在上面的图中注意该算法的实现，传入class binary_op可以是一个函数，也可以是一个仿函数，学习这种写法。
+
+自行尝试书写：
+```c++
+//计数算法
+template<class InputIterator, class T>
+typename iterator_traits<InputIterator>::difference_type count(InputIterator first, InputIterator last, const T& value) {
+  typename iterator_traits<InputIterator>::difference_type n = 0;
+  for (; first != last; ++first) {
+    if (*first == value) ++n;
+  }
+  return n;
+}
+
+//自定义比较方法的计数算法
+template<class InputIterator, class Predicate>
+typename iterator_traits<InputIterator>::difference_type count(InputIterator first, InputIterator last, Predicate pred) {
+  typename iterator_traits<InputIterator>::difference_type n = 0;
+  for (; first != last; ++first) {
+    if (pred(*first)) ++n;
+  }
+  return n;
+}
+
+template<typename T>   //函数
+bool Predicate(const T& value) {
+  return (value == ..);
+}
+
+template<typename T>   //仿函数
+class Predicate {
+  bool operator() (const T& value) {
+    return (value == ..);
+  }
+};
+```
+
+算法和仿函数的灵活使用：
+
+![Alt text](image-51.png)
+
+可以想象在sort中，myfunc被调用的方式：`myfunc(*first, *last)`，如果定义vector不是<int>的话，那么传入的iterator first就无法被函数接收，从而导致错误，因此传入vec应当与我自己写的函数输入参数类型一致。
+
+算法和仿函数这两个模块连在一起，仿函数实现一些基本的算法功能。
+
+## 适配器
+![Alt text](image-52.png)
+
+### 仿函数适配器（函数适配器）
+上上张图中less函数继承了父类binary_function<T, T, bool>。我们看一下这个父类：
+
+![Alt text](image-53.png)
+
+binary_function意为包含两个参数的运算函数。将传入的参数类型重新起名，在标准库中调用这个函数或进行调整时会询问这三个参数，与iterator中的五个参数非常类似，所以在标准库中会继承该父类，如果自己写的仿函数没有继承这个父类那么放进标准库中就可能在使用中出现错误。**下面就是使用second_argument_type的地方**。count_if表示如果满足条件计数。下面例子中是算法调用仿函数的方法：
+
+![Alt text](image-54.png)
+
+bind2nd的作用就是：将一个仿函数包装，包装出来的结果是返回小于40的结果，将less换为greater，就可以立即变成返回是否大于40，十分方便。bind2nd本身为一个函数模板，专用于推理出传入参数的type，并传给class binder2nd使用（因为class调用时要指明typename）。最后调用op(x, value)时才是调用的less(x, value)，而在最后pred在使用时将值通过x传递到less，并于value = 40进行比较，非常精巧。
+
+而后加上的not1和上面的写法一模一样：
+
+![Alt text](image-55.png)
+
+那么这个代码就可以像搭积木一样一层层的将逻辑表达出来了。就是选出不小于40的数。
+
+### 迭代器适配器
+![Alt text](image-56.png)
+
+在调用return reverse_iterator(end())时返回的就是class reverse_iterator，并调用构造函数初始化了该类，这个类重写了operator，使得所有操作都是反向的，当调用`sort(vec.rbegin(), vec.rend())`时，sort中所有调用++都会调用class reverse_iterator中的++。
+```c++
+class vector {
+  ...
+  typedef _it...<T> iterator;
+  ...
+  iterator end() {...}
+  ...
+  reverse_iterator<iterator> rbegin() {return reverse_iterator(end())}
+}
+```
+
+迭代器适配器做的就是自己里面定义一个该类型的迭代器，然后继承五个参数，复写那些操作。

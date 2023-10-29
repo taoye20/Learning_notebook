@@ -14,6 +14,8 @@ docker network inspect demo-oai-public-net #查看所有oai docker网桥信息
 docker network ls  #可以列出当前宿主机上运行的docker网路。
 
 docker exec oai-ext-dn ping 12.1.1.4 -c4  #应当尝试的命令
+
+docker compose up  #运行依靠两个文件：Dockerfile和docker-compose.yml。Dockerfile指定docker创建的环境和编译器的依赖，docker-compose.yml中指示了如何构建相应的docker容器，包括地址端口等很多信息。
 ```
 
 ![Alt text](image-23.png)
@@ -24,4 +26,5 @@ docker exec oai-ext-dn ping 12.1.1.4 -c4  #应当尝试的命令
 * UPF(SPGWU) 192.168.70.134
 * SMF 192.168.70.133
 * NRF 192.168.70.130
+* oai-ext-dn 192.168.70.135
 
