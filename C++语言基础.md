@@ -962,3 +962,406 @@ class vector {
 ```
 
 迭代器适配器做的就是自己里面定义一个该类型的迭代器，然后继承五个参数，复写那些操作。
+
+![Alt text](image-57.png)
+
+这张图中的等号重载相当有趣，copy函数已经写好的情况下，通过传入insert_iterator对象，这个对象重载=后，改变了copy的功能。
+
+有趣的tuple，可以接收任意数量任意类型的对象作为容器元素，其实现方法是：递归继承
+
+![Alt text](image-58.png)
+
+
+
+## c++设计模式
+软件设计的目标最重要的事情就是：**复用**，当新的需求到来时，不是满工程的到处改东西，最希望就是放入就能用。
+
+面向对象设计原则：
+* 依赖倒置原则，高层不应该依赖于底层的变化而变换。
+* 开放封闭原则，类可扩展，但不可被修改。
+* 有先使用对象组合，而不是类继承。继承有破坏封装性质。
+* 面向接口编程而不是具体的类
+
+![Alt text](image-59.png)
+
+一个面向对象的程序必定有稳定的部分和变化的部分
+
+![Alt text](image-60.png)
+
+下图中的流程由lib中写好，这是稳定的部分，但是它同时留下了2，4作为虚函数，这是变化的部分，在看一个程序的时候要养成这样的思路，在变化的部分合理运用设计模式。不能全设计不稳定和全稳定。上面这张图就是模板模式，即虚函数加继承。
+
+### 策略模式
+如果代码中想要写if else时，策略模式是个好选择。策略模式通过继承父类，利用成员函数多态，当调用时通过子类定义的多态实现选择不同模式。
+
+### 观察者模式
+在类中委托一个虚类。样例为：当前有个文件分割器，可以分割大文件为一个个小文件，现在我忽然想加入一个进度条功能，但是进度条可能是条形的，也可以是圆形的，还可能多个进度条同时出现。文件分割器类为观察者，进度条类为目标对象，当进度条变化时，希望文件分割器不受到影响。（委托其的类不受到影响）
+```c++
+//传统做法
+class FileSplitter
+{
+	string m_filePath;
+	int m_fileNumber;
+	ProgressBar* m_progressBar;
+
+  FileSplitter(const string& filePath, int number, ProgressBar* progressBar) : m_filePath(filePath)...
+  ..
+
+  void split() {..}
+}
+
+//使用时
+FileSplitter splitter(filePath, number, progressBar);
+splitter.split();
+```
+传统做法弊端在于，引入的进度条是具体的一个对象，不灵活。
+```c++
+//创建一个进度条虚类
+class IProgress{
+public:
+	virtual void DoProgress(float value)=0;
+	virtual ~IProgress(){}
+};
+
+//观察者设计模式
+class FileSplitter
+{
+	string m_filePath;
+	int m_fileNumber;
+	List<IProgress*>  m_iprogressList;  //委托的是一个纯虚类IProgress，list是为了可以同时多个进度条
+
+public:
+	FileSplitter(const string& filePath, int fileNumber) :
+	  m_filePath(filePath), 
+		m_fileNumber(fileNumber){}  //构造时先指定两个
+
+  void split() {
+    ...
+    onProgress(num)  //将进度值赋予m_iprogressList里的对象
+  }
+
+  void onProgress(int num) {..}
+
+  void addIProgress(IProgress* iprogress){  //提供操作的方法
+    m_iprogressList.push_back(iprogress);
+  }  
+}
+
+//使用时
+class ConsoleNotifier : public IProgress {    //继承复写进度条虚类
+public:
+	virtual void DoProgress(float value){
+		cout << ".";
+	}
+};
+
+ConsoleNotifier cn;     //创建进度条子类对象，有具体的进度条样式
+FileSplitter splitter(filePath, number);
+splitter.addIProgress(&cn);   //加进度条到观察者类中
+splitter.split();     //执行
+```
+![Alt text](image-61.png)
+
+### 装饰模式
+将继承实现功能扩展，变成通过组合对象实现功能扩展。使用时机就是功能扩展时，在扩展的类上首先考虑的是组合，而不是直接继承上一层的父类。
+```c++
+//通过继承实现功能扩展
+//业务操作
+class Stream{    //基类，对什么流的操作都有读，选，写三个基本操作
+public：
+    virtual char Read(int number)=0;
+    virtual void Seek(int position)=0;
+    virtual void Write(char data)=0;
+    
+    virtual ~Stream(){}
+};
+
+//主体类
+class FileStream: public Stream{    //文件流的操作，这些只是复写基类中的功能，还没有附加功能
+public:
+    virtual char Read(int number){
+        //读文件流
+    }
+    virtual void Seek(int position){
+        //定位文件流
+    }
+    virtual void Write(char data){
+        //写文件流
+    }
+
+};
+
+class NetworkStream :public Stream{    //网络流的操作
+public:
+    virtual char Read(int number){
+        //读网络流
+    }
+    virtual void Seek(int position){
+        //定位网络流
+    }
+    virtual void Write(char data){
+        //写网络流
+    }
+    
+};
+//###################################################################
+//扩展操作，多出加密的功能，则分别为文件流和网络流都加上这操作，分别继承文件流和网络流
+class CryptoFileStream :public FileStream{
+public:
+    virtual char Read(int number){
+       
+        //额外的加密操作...
+        FileStream::Read(number);//读文件流
+        
+    }
+    virtual void Seek(int position){
+        //额外的加密操作...
+        FileStream::Seek(position);//定位文件流
+        //额外的加密操作...
+    }
+    virtual void Write(byte data){
+        //额外的加密操作...
+        FileStream::Write(data);//写文件流
+        //额外的加密操作...
+    }
+};
+
+class CryptoNetworkStream : :public NetworkStream{
+public:
+    virtual char Read(int number){
+        
+        //额外的加密操作...
+        NetworkStream::Read(number);//读网络流
+    }
+    virtual void Seek(int position){
+        //额外的加密操作...
+        NetworkStream::Seek(position);//定位网络流
+        //额外的加密操作...
+    }
+    virtual void Write(byte data){
+        //额外的加密操作...
+        NetworkStream::Write(data);//写网络流
+        //额外的加密操作...
+    }
+};
+```
+
+```c++
+//前面不变，也是有基类，以及基类引申出来的文件流和网络流
+//扩展操作
+class CryptoStream: public Stream {
+    
+    Stream* stream;     //直接继承基类，再在类里面定义基类对象以便于传入文件流和网络流的多态对象
+
+public:
+    CryptoStream(Stream* stm):stream(stm){   //在这里传入基类的子类对象
+    
+    }
+    
+    
+    virtual char Read(int number){  //注意此时要重新复写基类功能，并复用文件流内的read功能，以达到文件流和加密功能都有
+       
+        //额外的加密操作...
+        stream->Read(number);//读文件流  
+    }
+    virtual void Seek(int position){
+        //额外的加密操作...
+        stream::Seek(position);//定位文件流
+        //额外的加密操作...
+    }
+    virtual void Write(byte data){
+        //额外的加密操作...
+        stream::Write(data);//写文件流
+        //额外的加密操作...
+    }
+};
+
+//使用时
+//运行时装配
+FileStream* s1=new FileStream();
+CryptoStream* s2=new CryptoStream(s1);
+```
+
+### 桥模式
+与装饰模式相似，但是也有所不同，中心思想是通过对象组合。装饰模式是在原有的类上添加功能，桥模式是对基类里的虚成员功能进行不同组合的复写。
+```c++
+//一般实现：继承
+class Messager{
+public:
+    virtual void Login(string username, string password)=0;
+    virtual void SendMessage(string message)=0;
+    virtual void SendPicture(Image image)=0;
+
+    virtual void PlaySound()=0;
+    virtual void DrawShape()=0;
+    virtual void WriteText()=0;
+    virtual void Connect()=0;
+    
+    virtual ~Messager(){}
+};
+
+//平台实现，只复写了平台功能，分成不同的种类
+class PCMessagerBase : public Messager{
+public:
+    
+    virtual void PlaySound(){
+        //**********
+    }
+    virtual void DrawShape(){
+        //**********
+    }
+    virtual void WriteText(){
+        //**********
+    }
+    virtual void Connect(){
+        //**********
+    }
+};
+
+class MobileMessagerBase : public Messager{
+public:
+    
+    virtual void PlaySound(){
+        //==========
+    }
+    virtual void DrawShape(){
+        //==========
+    }
+    virtual void WriteText(){
+        //==========
+    }
+    virtual void Connect(){
+        //==========
+    }
+};
+
+
+//业务抽象，复写了平台操作，分别继承不同的功能
+class PCMessagerLite : public PCMessagerBase {
+public:
+    
+    virtual void Login(string username, string password){
+        
+        PCMessagerBase::Connect();
+        //........
+    }
+    virtual void SendMessage(string message){
+        
+        PCMessagerBase::WriteText();
+        //........
+    }
+    virtual void SendPicture(Image image){
+        
+        PCMessagerBase::DrawShape();
+        //........
+    }
+};
+
+class MobileMessagerLite : public MobileMessagerBase {
+public:
+    
+    virtual void Login(string username, string password){
+        
+        MobileMessagerBase::Connect();
+        //........
+    }
+    virtual void SendMessage(string message){
+        
+        MobileMessagerBase::WriteText();
+        //........
+    }
+    virtual void SendPicture(Image image){
+        
+        MobileMessagerBase::DrawShape();
+        //........
+    }
+};
+```
+
+```c++
+//请注意这里为什么要分开两部分Messager和MessagerImp，因为如果不分开，而如PCMessagerImp只复写了部分成员函数，那么是无法创建成对象的，因为有纯虚函数没有得到复写。但现在分开来，PCMessagerImp可以独立创建为对象，并传递给后面平台实现。
+class Messager{
+protected:
+     MessagerImp* messagerImp;//...
+public:
+    virtual void Login(string username, string password)=0;
+    virtual void SendMessage(string message)=0;
+    virtual void SendPicture(Image image)=0;
+    
+    virtual ~Messager(){}
+};
+
+class MessagerImp{
+public:
+    virtual void PlaySound()=0;
+    virtual void DrawShape()=0;
+    virtual void WriteText()=0;
+    virtual void Connect()=0;
+    
+    virtual MessagerImp(){}
+};
+
+
+//平台实现 n
+class PCMessagerImp : public MessagerImp{
+public:
+    virtual void PlaySound(){
+        //**********
+    }
+    virtual void DrawShape(){
+        //**********
+    }
+    virtual void WriteText(){
+        //**********
+    }
+    virtual void Connect(){
+        //**********
+    }
+};
+
+class MobileMessagerImp : public MessagerImp{
+public:
+    virtual void PlaySound(){
+        //==========
+    }
+    virtual void DrawShape(){
+        //==========
+    }
+    virtual void WriteText(){
+        //==========
+    }
+    virtual void Connect(){
+        //==========
+    }
+};
+
+
+
+//业务抽象 m
+
+//类的数目：1+n+m
+
+class MessagerLite :public Messager {
+public:
+    virtual void Login(string username, string password){
+        
+        messagerImp->Connect();
+        //........
+    }
+    virtual void SendMessage(string message){
+        
+        messagerImp->WriteText();
+        //........
+    }
+    virtual void SendPicture(Image image){
+        
+        messagerImp->DrawShape();
+        //........
+    }
+};
+
+void Process(){
+    //运行时装配
+    MessagerImp* mImp=new PCMessagerImp();
+    Messager *m =new Messager(mImp);
+}
+```
