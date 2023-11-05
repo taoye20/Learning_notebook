@@ -1365,3 +1365,444 @@ void Process(){
     Messager *m =new Messager(mImp);
 }
 ```
+
+
+### 工厂模式
+工厂方法、抽象工厂和原型模式。工厂方法解决问题为：我主函数mainform希望创建一个对象，使用了new XXX，如`ISplitter * splitter=new BinarySplitter();`，等式右边依然是一个具体的类名，现在希望创建的这个类是什么由外部决定而不是在mainform中定死了，因此采用工厂模式。
+```c++
+//延续之前的例子，一个分割大文件的类
+//首先是两个基类
+
+//分割器抽象类
+class ISplitter{
+public:
+    virtual void split()=0;
+    virtual ~ISplitter(){}
+};
+
+//工厂基类，工厂就是形象的类比，这个工厂的功能就是生产以ISplitter为基类的对象，它也是虚类，什么工厂就生产什么对象
+class SplitterFactory{
+public:
+    virtual ISplitter* CreateSplitter()=0;
+    virtual ~SplitterFactory(){}
+};
+
+
+//现在这里有创建一些具体的类和对应的工厂
+//具体类
+class BinarySplitter : public ISplitter{
+    
+};
+
+class TxtSplitter: public ISplitter{
+    
+};
+
+//具体工厂，什么工厂就生产什么对象
+class BinarySplitterFactory: public SplitterFactory{
+public:
+    virtual ISplitter* CreateSplitter(){
+        return new BinarySplitter();
+    }
+};
+
+class TetSplitterFactory : public SplitterFactory{
+public:
+    virtual ISplitter* CreateSplitter(){
+        return new TxtSplitter();
+    }
+}
+
+
+
+//工厂模式的使用
+class MainForm : public Form {
+    SplitterFactory* factory;   //委托对象为工厂
+
+public:
+    MainForm(SplitterFactory* factory) : factory(factory) {}  //此处传入的对象可以是多态的，传入对象为工厂
+    ISplitter* splitter = factory->CreateSplitter();   //在创建splitter时，就不必要在MainForm内指定具体的对象
+    //换句话说，就是将等式的右边new的部分也变成一个多态
+
+    splitter->split();
+}；
+```
+
+上面的例子中，一个工厂中就只生产一种对象，但是如果有几个对象是有关联的，那么一个工厂可以一次性生产几个相关联的对象，可以说工厂方法就是抽象工厂的一个特例。
+
+```c++
+//数据库访问有关的基类
+class IDBConnection{
+    
+};
+
+class IDBCommand{
+    
+};
+
+class IDataReader{
+    
+};
+
+//工厂基类，同时生产几个相关联的基类
+class IDBFactory{
+public:
+    virtual IDBConnection* CreateDBConnection()=0;
+    virtual IDBCommand* CreateDBCommand()=0;
+    virtual IDataReader* CreateDataReader()=0;
+};
+
+
+//支持SQL Server
+class SqlConnection: public IDBConnection{
+    
+};
+class SqlCommand: public IDBCommand{
+    
+};
+class SqlDataReader: public IDataReader{
+    
+};
+
+//工厂具体类，sql
+class SqlDBFactory:public IDBFactory{
+public:
+    virtual IDBConnection* CreateDBConnection() {
+      return new SqlConnection();
+    }
+    virtual IDBCommand* CreateDBCommand() {
+      return new SqlCommand();
+    }
+    virtual IDataReader* CreateDataReader() {
+      return new SqlDataReader();
+    }
+ 
+};
+
+//支持Oracle
+class OracleConnection: public IDBConnection{
+    
+};
+
+class OracleCommand: public IDBCommand{
+    
+};
+
+class OracleDataReader: public IDataReader{
+    
+};
+
+//工厂具体类，Oracle
+class OracleDBFactory:public IDBFactory{
+public:
+    virtual IDBConnection* CreateDBConnection() {
+      return new OracleConnection();
+    }
+    virtual IDBCommand* CreateDBCommand() {
+      return new OracleCommand();
+    }
+    virtual IDataReader* CreateDataReader() {
+      return new OracleDataReader();
+    }
+ 
+};
+
+
+//实现
+class EmployeeDAO{
+    IDBFactory* dbFactory;
+    
+public:
+    vector<EmployeeDO> GetEmployees(){
+        IDBConnection* connection =
+            dbFactory->CreateDBConnection();   //创建第一个对象
+        connection->ConnectionString("...");
+
+        IDBCommand* command =
+            dbFactory->CreateDBCommand();    //创建第二个对象，与第一个关联，第一个为sql第二个也是，而不是oracle
+        command->CommandText("...");
+        command->SetConnection(connection); //关联性
+
+        IDBDataReader* reader = command->ExecuteReader(); //关联性
+        while (reader->Read()){
+
+        }
+
+    }
+};
+```
+
+原型模式即通过浅拷贝，将已有对象复制一个出来，通常用于对象创建new时比较复杂，但是已经有配置好的对象，则使用。
+```c++
+//抽象类
+class ISplitter{
+public:
+    virtual void split()=0;
+    virtual ISplitter* clone()=0; //通过克隆自己来创建对象，实际上也是把工厂搬到对象基类里来了，但该工厂是复制产生对象
+    
+    virtual ~ISplitter(){}
+
+};
+
+//具体类
+class BinarySplitter : public ISplitter{
+public:
+    virtual void split() {}
+    virtual ISplitter* clone(){
+        return new BinarySplitter(*this);
+    }
+};
+
+class TxtSplitter: public ISplitter{
+public:
+    virtual void split() {}
+    virtual ISplitter* clone(){
+        return new TxtSplitter(*this);
+    }
+};
+
+
+//使用
+class MainForm : public Form {
+  ISplitter* prototype;  //委托对象为工厂
+
+public:
+  MainForm(ISplitter* prototype) {
+    this->prototype = prototype;
+  }
+
+  ISplitter* splitter = prototype->clone();
+  splitter->split();
+}
+```
+
+### 构建器
+当类比较复杂时，分离对象中变化较多的部分和变化较少的部分。现在考虑建造一个房子的类。这节与桥模式十分相近，都是把**变化的功能**当作一个类单独用于多态继承。但不同在于桥模式注重点在创建一个类时，打包进去不同的具体细节。而构建器重点在于构建器类是个相对稳定的类，而后将构建好的house返回传递给House类。
+```c++
+class House{
+public:
+  void Init(){
+    
+        pHouseBuilder->BuildPart1();
+        
+        for (int i = 0; i < 4; i++){
+            pHouseBuilder->BuildPart2();
+        }
+        
+        bool flag=pHouseBuilder->BuildPart3();
+        
+        if(flag){
+            pHouseBuilder->BuildPart4();
+        }
+        
+        pHouseBuilder->BuildPart5();
+  }
+
+private:
+  virtual void BuildPart1()=0;  //变化部分，到未来重写子类要继承整个House来写变化内容，是缺点
+  virtual void BuildPart2()=0;
+  virtual void BuildPart3()=0;
+  virtual void BuildPart4()=0;
+  virtual void BuildPart5()=0;
+}
+```
+
+下面的代码主要关注点为：创建了HouseBuilder对象方便动态的改变。HouseDirector是静态的流程，其中中使用HouseBuilder指针。
+```c++
+class House{
+    //具有很多复杂的房子属性
+};
+
+//建造具体步骤的基类
+class HouseBuilder {
+public:
+    House* GetResult(){
+        return pHouse;
+    }
+    virtual ~HouseBuilder(){}
+protected:
+    
+    House* pHouse;
+	  virtual void BuildPart1()=0;
+    virtual void BuildPart2()=0;
+    virtual void BuildPart3()=0;
+    virtual void BuildPart4()=0;
+    virtual void BuildPart5()=0;
+	
+};
+
+//具体房子
+class StoneHouse: public House{
+    
+};
+
+//具体步骤内容
+class StoneHouseBuilder: public HouseBuilder{
+protected:
+    
+    virtual void BuildPart1(){
+        //pHouse->Part1 = ...;
+    }
+    virtual void BuildPart2(){
+        
+    }
+    virtual void BuildPart3(){
+        
+    }
+    virtual void BuildPart4(){
+        
+    }
+    virtual void BuildPart5(){
+        
+    }
+    
+};
+
+//固定的构建方法，对于不同的房子有相同的建造步骤
+class HouseDirector{
+public:
+    HouseBuilder* pHouseBuilder;
+    
+    HouseDirector(HouseBuilder* pHouseBuilder){
+        this->pHouseBuilder=pHouseBuilder;
+    }
+    
+    House* Construct(){
+        
+        pHouseBuilder->BuildPart1();
+        
+        for (int i = 0; i < 4; i++){
+            pHouseBuilder->BuildPart2();
+        }
+        
+        bool flag=pHouseBuilder->BuildPart3();
+        
+        if(flag){
+            pHouseBuilder->BuildPart4();
+        }
+        
+        pHouseBuilder->BuildPart5();
+        
+        return pHouseBuilder->GetResult();
+    }
+};
+
+
+//使用方法
+//House* stoneHouse = new StoneHouse();
+HouseBuilder* stoneHouseBulider = new StoneHouseBuilder();   //创建石头房子建造方法
+HouseDirector* houseDirector = HouseDirector(stoneHouseBulider); 
+House* stoneHonuse = houseDirector->Construct();  //认真思考该房子对象是怎么返回的
+```
+
+### 单件模式
+创建一个对象，其实例在整个程序中只允许有一个实例。实现起来比较简单，就是将构造函数放在private中。由于在多线程中调用会有一些问题，因此讨论了其设计方法的具体细节。
+```c++
+class Singleton{
+private:
+    Singleton();
+    Singleton(const Singleton& other);   //拷贝构造是用于重新创建对象
+public:
+    static Singleton* getInstance();  //外部创建和访问都通过这个函数
+    static Singleton* m_instance;  //注意哦，使用static，在全局区，只有一个
+};
+
+Singleton* Singleton::m_instance=nullptr;
+
+//线程非安全版本
+Singleton* Singleton::getInstance() {
+    if (m_instance == nullptr) {     //但在多线程会导致多个线程进入该函数，创建了多个对象
+        m_instance = new Singleton();
+    }
+    return m_instance;
+}
+
+
+//线程安全版本，但锁的代价过高
+Singleton* Singleton::getInstance() {
+    Lock lock;        //不管三七二十一直接加锁，但是在高并发场景每个用户想要读取时都得等其他用户先读完判断是不是唯一一个对象，代价大
+    if (m_instance == nullptr) {
+        m_instance = new Singleton();
+    }
+    return m_instance;
+}
+
+
+//双检查锁，但由于内存读写reorder不安全
+Singleton* Singleton::getInstance() {
+    
+    if(m_instance==nullptr){    //这样读取的就可以不被阻塞
+        Lock lock;
+        if (m_instance == nullptr) {   //防止同时两个进入
+            m_instance = new Singleton();   //但由于cpu内部会打乱分配指针地址的顺序时机，下面return可能会被别的线程抢先返回尚未创建对象完成的地址。
+        }
+    }
+    return m_instance;   
+}
+
+
+//C++ 11版本之后的跨平台实现 (volatile)
+std::atomic<Singleton*> Singleton::m_instance;
+std::mutex Singleton::m_mutex;
+
+Singleton* Singleton::getInstance() {
+    Singleton* tmp = m_instance.load(std::memory_order_relaxed);
+    std::atomic_thread_fence(std::memory_order_acquire);//获取内存fence
+    if (tmp == nullptr) {
+        std::lock_guard<std::mutex> lock(m_mutex);
+        tmp = m_instance.load(std::memory_order_relaxed);
+        if (tmp == nullptr) {
+            tmp = new Singleton;
+            std::atomic_thread_fence(std::memory_order_release);//释放内存fence
+            m_instance.store(tmp, std::memory_order_relaxed);
+        }
+    }
+    return tmp;
+}
+```
+
+
+### 享元模式
+应对小对象常使用的情况，就比如int，double，string，通常本不考虑使用对象模式来占用内存空间，但万一有呢？
+```c++
+class Font {
+private:
+
+    //unique object key
+    string key;
+    
+    //object state
+    //....
+    
+public:
+    Font(const string& key){
+        //...
+    }
+};
+ß
+
+class FontFactory{
+private:
+    map<string,Font* > fontPool;
+    
+public:
+    Font* GetFont(const string& key){
+
+        map<string,Font*>::iterator item=fontPool.find(key);
+        
+        if(item!=footPool.end()){
+            return fontPool[key];
+        }
+        else{
+            Font* font = new Font(key);
+            fontPool[key]= font;
+            return font;
+        }
+
+    }
+    
+    void clear(){
+        //...
+    }
+};
+```

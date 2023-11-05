@@ -156,7 +156,46 @@ int main(int argc, char* argv[]) {
 ```
 
 ### wait函数
+两个函数：
+* pid_t wait(int *status);等待所有子进程。返回可能是任何一个子进程的ID。
+* pid_t waitpid(pid_t pid, int *status, int options);等待特定的子进程。
 
+这两个函数都是成功调用就返回等待的子进程，失败返回-1。statue指等待的子进程是以什么状态结束的，可以使用以下代码打出退出状态。
+
+![Alt text](image-65.png)
+
+```c
+int status;
+wait(&status);
+out_status(status);
+
+void out_status(int status) {
+    if(WIFEXITED(status)){
+        printf("normal exit,stop sig is %d\n", WIFEXITED(status));
+    }
+    ...
+}
+```
+kill -l 命令可以看到每种信号的编号。比如某些终止信号和中断信号。
+
+理解了wait之后，知道了一件事，如果没有指定子进程结束，那么子进程就会一直在保存着，直到父进程结束，僵尸由init回收。而如果父进程调用wait，则在父进程中wait时会回收僵尸。
+
+### exec函数
+fork后常常要使用exec函数以执行另一个可执行程序（第三方写好的程序或系统中自带的函数），就比如我写了一个脚本，希望在子进程中启动一个wireshark抓包，则会用到exec。
+
+调用exec不会创建新的子进程，只是用新的程序替换了子进程的代码段，堆和栈。
+
+![Alt text](image-66.png)
+
+![Alt text](image-67.png)
+
+注意不返回原来的代码是指这条命令之后就不再执行下面的代码了。
+
+### system函数
+简化exec的使用，system在内部构建一个子进程，并在子进程中调用exec。system输入参数为char*类型。
+
+### 进程状态
+![Alt text](image-68.png)
 
 ## 指令
 
