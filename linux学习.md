@@ -1,5 +1,503 @@
 # Linux学习
+
+## 指令
+
+### 基本指令
+```c++
+df -h //查看磁盘空间和挂载情况
+
+free -m  //查看内存，其中标识为swap的为虚拟内存，用磁盘的
+
+tree  //显示目录结构用树形展示
+
+find ./ -name '*.txt'  //寻找文件的一个例子
+
+grep -r 'copy' ./  //寻找文件中的内容的例子
+
+ps -aux  //进程查询，a为查看当前系统所有用户进程，u为详细信息，x为显示没有终端控制的进程
+
+find /sbin -perm +700 |xargs ls -l  //xargs捕获输出并管道操作
+```
+
+```c++
+//输出重定向
+command > file	//将输出重定向到 file。
+command < file	//将输入重定向到 file。
+command >> file	//将输出以追加的方式重定向到 file。
+ls | tee -a ls.txt   //保留ls.txt文件中原来的内容，并把ls命令的执行结果添加到ls.txt文件的后面。
+```
+
+```c++
+//快捷键
+ctrl + a  //光标移动到最前
+ctrl + e  //光标移动到最后
+```
+
+```c++
+//文件功能
+bin //放二进制可执行文件
+boot  //放开机启动程序
+dev  //设备文件
+home  //放用户
+etc  //用户信息和系统配置文件
+lib  //库文件
+root  //管理员
+usr  //用户资源管理目录
+```
+
+```c++
+//用户和用户组
+whoami  //查看当前用户
+exit  //退出root
+-rwxrw-r-- core core 。。。 //数值为4，2，1。三个权限集分别为用户、组、root。后面表示文件所属用户和用户组，使用chown来改变
+```
+![Alt text](image-21.png)
+
+```c++
+//gcc编译
+//上面我们经常使用的-o参数实际上是指定输出文件名
+gcc hello.c -I ./inc -o hello  //当头文件放在inc中时，使用-I参数指定.h文件所在路径 
+```
+## 建立库
+程序库（lib）分为动态库（共享库）和静态库，动态库在程序调用时加载，具有灵活的优点，静态库有加载快的优点。静态库会在链接的时候将库里函数复制到执行文件中，但共享库会使用原库函数中的地址，所以多个程序都可以同时去读取库中的函数，叫共享。
+
+注意库是作用于可执行文件的可执行文件的，即汇编后的链接阶段。
+
+```c++
+//静态库制作
+//1，编译c文件
+gcc -c add.c -o add.o
+gcc -c sub.c -o sub.o
+
+/*
+//add.c，执行加操作
+int add(int a, int b){
+    return a + b;
+}
+*/
+
+//创建和加入静态库
+ar rcs libmylib.a add.o sub.o  //libmylib.a是我为静态库起的名字，起名规范是前面带lib
+
+//使用静态库，若add.c被移动到了别处，使用gcc test.c -o test将无法完成上面的链接步骤
+gcc test.c libmylib.a -o test  //其中test.c调用了add函数
+
+/*
+//test.c
+include "mymath.h"  //即使有静态库一起编译，但没有这行声明，编译器会隐式声明并在编译时有wraning
+include "mymath.h"  //.h中的ifndef是防止重复的引用
+
+int main(){
+    int a = 4;
+    int b = 6;
+    printf("add res = %d", add(a, b));
+    return 0;
+}
+
+
+
+//mymath.h
+#ifndef _MYMATH_H_
+#define _MYMATH_H_
+
+int add(int, int);
+int sub(int, int);
+
+#endif
+*/
+
+//结合以上知识，此时使用以下代码可以创建一个目录的结构
+mkdir inc
+mv mymath.h ./inc
+mkdir lib
+mv libmtlib.a lib
+gcc test.c ./lib/libmylib.a -o test -I ./inc
+```
+
+```c++
+//动态库制作
+//根据理论，动态库的文件应当生成与位置无关的代码，记结论，即在生成时加上-fPIC
+gcc add.c -o add.o -fPIC
+
+//制作库
+gcc -sharded -o libmymath.so add.o sub.o
+mv libmaymath.so ./lib
+
+//编译, -l so文件名 -L 库文件路径
+export LD_LIBRARY_PATH=./lib  //添加动态库路径，临时生效
+vim `/.bashrc //写入LD_LIBRARY_PATH=./lib  ， source .bashrc
+gcc test.c -o test -l mymath -L ./lib -I ./inc
+```
+
+
+## gdb调试
+gdb是用于程序调试的工具，功能强大。gdb使用也是作用于可执行文件。
+```c++
+//调试以前编译时要加-g
+gcc gdbtest.c -o gdbtest -g
+
+//进入调试模式
+gdb ...  //...代表可执行文件的文件名
+
+//打印原代码
+list 1 //从第一行开始，简写l
+
+//设置断点
+break 52  //在52行断点，简写b
+delete 5   //删除断点，断点号
+clear 52   //删除断点，行号
+
+//调试运行
+run  //简写r，停在断点处，出错调试直接查找到出错位置
+
+//下一步
+next //n，执行完下一行，如果是函数则也执行完函数
+step //s，如果是函数则进去
+
+//查看值
+print i //p
+
+//运行到结束
+cotinue
+
+//退出调试
+quit
+
+//设置main函数输入参数
+set args ...  //也可以run ...
+
+//条件断点
+b 41 if i=5
+
+//查看所有断点
+info b
+```
+
+### gdb其他命令
+实例：如果程序出现错误，则直接run，可以停顿在出错行。
+
+```c++
+//gdb模式下想直接运行代码
+start
+
+//结束当前函数调用返回到函数调用点
+finish
+
+//查看变量类型
+ptype i  //i为变量名
+
+//切换栈区作用域
+bt  //查看栈区编号
+frame ..  //..表示栈区的编号，换到该栈区
+ptype ..  //查看不同函数栈区的存储变量
+
+//一直跟踪一个值，我每次next时，它都会输出当前i的值
+display i
+undisplay i
+```
+
+## makefile
+### 一个规则
+makefile只能在文件中命名为makefile或Makefile，makefile的规则：
+```c++
+目标：依赖条件
+    命令
+
+//举例，如果希望执行命令gcc hello.c -o hello，makefile文件中应该如下写法
+hello:hello.c
+    gcc hello.c -o hello
+
+
+//换分步骤的方式，注意这个规则，目标：依赖条件
+hello:hello.o  //hello.o暂时不存在，则去找如何生成该条件
+    gcc hello.o -o hello
+
+hello.o:hello.c
+    gcc -c hello.c -o hello.o
+```
+
+```c++
+//另外一个例子
+//使用之前制作库的例子有main.c，add.c，sub.c，div1.c
+//命令
+gcc hello.c add.c sub.c div.c -o a.out
+
+//makefile书写
+a.out:hello.c add.c sub.c div.c
+    gcc hello.c add.c sub.c div.c -o a.out
+
+//但此时忽然改正了add.c文件，那么之前的a.out不能用了，只能再次执行make，把全部都编译了，这在合作中并不好。
+//在单独改add最后一步其实就只有一个链接需要做，因此
+//这时候改正某个c文件后再make，就只执行非常小部分更改的位置
+a.out:hello.o add.o sub.o div.o   //重执行链接
+    gcc hello.o add.o sub.o div.o -o a.out
+
+hello.o:hello.c
+    gcc -c hello.c -o hello.o
+
+add.o:add.c    //重执行编译
+    gcc -c add.c -o add.o
+
+sub.o:sub.c
+    gcc -c sub.c -o sub.o
+
+div.o:div.c
+    gcc -c div.c -o div.o
+
+
+//但如果我这么写，把第一行放到最后
+hello.o:hello.c
+    gcc -c hello.c -o hello.o
+
+add.o:add.c    
+    gcc -c add.c -o add.o
+
+sub.o:sub.c
+    gcc -c sub.c -o sub.o
+
+div.o:div.c
+    gcc -c div.c -o div.o
+
+a.out:hello.o add.o sub.o div.o  
+    gcc hello.o add.o sub.o div.o -o a.out
+//出错！只执行hello那一行，因为它把第一行当成默认的终极目标执行完就走了
+
+//加入一行，指定终极目标
+ALL:a.out
+
+```
+
+### 两个函数
+```c++
+//找到当前目录下所有后缀为.c的文件，赋值给src
+src = $(wildcard *.c) 
+
+//把src变量中所有后缀为.c的文件替换成.o
+obj = $(patsubst %.c, %.o, $(src))
+
+a.out:$(obj)   
+    gcc $(obj) -o a.out
+
+hello.o:hello.c
+    gcc -c hello.c -o hello.o
+
+add.o:add.c    
+    gcc -c add.c -o add.o
+
+sub.o:sub.c
+    gcc -c sub.c -o sub.o
+
+div.o:div.c
+    gcc -c div.c -o div.o
+
+clean:  //清除指令，使用方法为make clean -n, -n是先打出来看一下是不是删除正确的东西，“-”删除不存在东西也不报错
+    -rm -rf $(obj) a.out
+```
+
+### 三个变量
+```c++
+$@  //在规则命令中，表示规则的目标
+$^  //在命令中，表示所有依赖条件
+$<  //在命令中表示第一个依赖条件
+
+//举例
+src = $(wildcard *.c)
+obj = $(patsubst %.c, %.o, $(src))
+
+ALL:a.out
+
+a.out:$(obj)   
+    gcc $(obj) -o a.out
+
+hello.o:hello.c
+    gcc -c $< -o $@
+
+add.o:add.c    
+    gcc -c $< -o $@
+
+sub.o:sub.c
+    gcc -c $< -o $@
+
+div.o:div.c
+    gcc -c $< -o $@
+
+clean:
+    -rm -rf $(obj) a.out
+
+
+
+//模式规则，上面的代码可以写成如下
+src = $(wildcard *.c)
+obj = $(patsubst %.c, %.o, $(src))
+
+ALL:a.out
+
+a.out:$(obj)   
+    gcc $(obj) -o a.out
+
+%.o:%.c      //如果将$<用在模式规则中，可以将列表中的依赖依次取出，并套用模式规则
+    gcc -c $< -o $@
+
+clean:
+    -rm -rf $(obj) a.out
+
+//伪目标
+.PHONY: clean ALL
+
+```
+该模式规则应用后，我即便添加一个.c文件，也不用更改makefile文件。
+
+```c++
+//现在有一个要求
+//所有.h文件放在inc目录下
+//所有.c文件放在src目录下
+//所有.o文件放在obj目录下
+src = $(wildcard ./src/ *.c)
+obj = $(patsubst ./src/%.c, ./obj/%.o, $(src))  //注意%，此时obj代表了./obj/*.o
+
+ALL:a.out
+
+inc_path = ./inc
+myArgs = -I
+myArgs_1 = -Wall -g
+
+a.out:$(obj)
+    gcc $< -o $@ $(myArgs_1)
+
+./obj/%.o:./src/%.c   //注意%
+    gcc -c $< -o $@ $(myArgs) $(inc_path) $(myArgs_1)
+
+clean:
+    -rm -rf $(obj) a.out
+
+.PHONY: clean ALL
+```
+
+最后是make的指令
+```c++
+make -n //模拟运行make
+make -f .. //指定文件执行make
+```
+
+# 系统编程
+## 文件操作
+使用man查看指令的用法
+
+![Alt text](image-71.png)
+
+```c++
+man 2 open  //查看open的用法
+```
+
+### open
+```c
+#include<unistd.h>  //open的头
+#include<fcntl.h>  //flags的头
+#include<stdio.h>   //printf头
+
+int open(const char* pathname, int flags);
+int open(const char* pathname, int flags, mode_t mode);
+
+fd = open("./xx.txt", O_RDONLY | O_CREAT, 0644);  //rw-r--r--权限mode，读或创建（若不存在）
+```
+
+### read和write
+```c++
+ssize_t read(int fd, void *buf, size_t count);  //返回读到的字节数，存在buf中，conut是max ssize
+
+ssize_t write(int fd, const void *buf, size_t count);   //只不过buf是写入内容，count是要写入的大小
+
+//读写例子
+int main(int argc, char* argv[]){
+    char buf[1024];
+    int n = 0;
+
+    int fd1 = open(argv[1], O_RDONLY);
+    int fd2 = open(argv[2], O_RDWR|O_CREAT|O_TRUNC, 0664);
+    //if(fd < 0) perror("...");
+
+    while(n = read(fd1, buf, 1024)){
+        write(fd2, buf, n); //读多少n写多少
+    }
+
+    close(fd1);
+    close(fd2);
+}
+```
+
+那么对比系统函数与库函数fopen(),fgetc(),fputc()区别
+
+![Alt text](image-72.png)
+
+但是了解了系统函数，还是推荐优先使用库函数。
+
+### fcntl
+```c++
+int fcntl(int fd, int cmd, .../* arg */);
+
+//获取文件状态F_GETFL，设置文件状态F_SETFL
+
+flags = fcntl(STDIN_FILENO, F_GETFL);  //获取stdin的属性
+flags |= O_NOBLOCK;  //或等于添加该属性，属于位运算
+
+int ref = fcntl(STDIN_FILENO, F_SETFL, flags);  
+```
+
+### lseek
+
+
 ## 进程学习
+
+### PCB进程控制块
+
+![Alt text](image-73.png)
+
+文件描述符表中记录了文件结构体FILE，这个对用户是不可见的。一个进程最多能打开1024个文件。
+
+### 阻塞非阻塞
+常规读文件不会阻塞。产生阻塞的场景：
+* 读设备文件，例如：/dev/tty  终端文件
+* 读网络文件
+
+```c++
+//阻塞
+int main(){
+    char buf[10];
+    int n = 0;
+
+    n = read(STDIN_FILENO, buf, 10);  //读标准输入，是设备文件属性，默认阻塞
+    if(n < 0) {
+        perror("read error");
+        exit(1);
+    }
+
+    write(STDIN_FILENO, buf, 10);
+    return 0;
+}
+
+//希望改变文件的是否阻塞属性
+    fd = open("/dev/tty", O_RDONLY|O_NONBLOCK);
+
+//注意非阻塞文件读取为空也会返回-1，但是erno会置为EAGAIN
+trygain:
+    n = read(fd, buf, 10);
+    if(n < 0){
+        if(errno != EAGAIN){
+            perror(..)
+            exit(1);
+        }
+        else{
+            write(STDOUT_FILENO, "try again!\n", strlen("try again!\n"));
+            sleep(2);
+            goto tryagain;
+        }
+    
+    write(STDOUT_FILENO, buf, n);
+    close(fd);
+    }
+```
+该代码将输入终端设置为非阻塞，并不停的访问是否有读到，是一种轮询的方式。不是一个好设计，好设计是中断。
+
 ### 进程终止
 基本的文件操作方法和进程的终止：
 ```c
@@ -196,170 +694,3 @@ fork后常常要使用exec函数以执行另一个可执行程序（第三方写
 
 ### 进程状态
 ![Alt text](image-68.png)
-
-## 指令
-
-### 基本指令
-```c++
-df -h //查看磁盘空间和挂载情况
-
-free -m  //查看内存，其中标识为swap的为虚拟内存，用磁盘的
-
-tree  //显示目录结构用树形展示
-
-find ./ -name '*.txt'  //寻找文件的一个例子
-
-grep -r 'copy' ./  //寻找文件中的内容的例子
-
-ps -aux  //进程查询，a为查看当前系统所有用户进程，u为详细信息，x为显示没有终端控制的进程
-
-find /sbin -perm +700 |xargs ls -l  //xargs捕获输出并管道操作
-```
-
-```c++
-//输出重定向
-command > file	//将输出重定向到 file。
-command < file	//将输入重定向到 file。
-command >> file	//将输出以追加的方式重定向到 file。
-ls | tee -a ls.txt   //保留ls.txt文件中原来的内容，并把ls命令的执行结果添加到ls.txt文件的后面。
-```
-
-```c++
-//快捷键
-ctrl + a  //光标移动到最前
-ctrl + e  //光标移动到最后
-```
-
-```c++
-//文件功能
-bin //放二进制可执行文件
-boot  //放开机启动程序
-dev  //设备文件
-home  //放用户
-etc  //用户信息和系统配置文件
-lib  //库文件
-root  //管理员
-usr  //用户资源管理目录
-```
-
-```c++
-//用户和用户组
-whoami  //查看当前用户
-exit  //退出root
--rwxrw-r-- core core 。。。 //数值为4，2，1。三个权限集分别为用户、组、root。后面表示文件所属用户和用户组，使用chown来改变
-```
-![Alt text](image-21.png)
-
-```c++
-//gcc编译
-//上面我们经常使用的-o参数实际上是指定输出文件名
-gcc hello.c -I ./inc -o hello  //当头文件放在inc中时，使用-I参数指定.h文件所在路径 
-```
-### 建立库
-程序库（lib）分为动态库（共享库）和静态库，动态库在程序调用时加载，具有灵活的优点，静态库有加载快的优点。静态库会在链接的时候将库里函数复制到执行文件中，但共享库会使用原库函数中的地址，所以多个程序都可以同时去读取库中的函数，叫共享。
-
-```c++
-//静态库制作
-//1，编译c文件
-gcc -c add.c -o add.o
-gcc -c sub.c -o sub.o
-
-/*
-//add.c，执行加操作
-int add(int a, int b){
-    return a + b;
-}
-*/
-
-//创建和加入静态库
-ar rcs libmylib.a add.o sub.o  //libmylib.a是我为静态库起的名字，起名规范是前面带lib
-
-//使用静态库，若add.c被移动到了别处，使用gcc test.c -o test将无法完成上面的链接步骤
-gcc test.c libmylib.a -o test  //其中test.c调用了add函数
-
-/*
-//test.c
-include "mymath.h"  //即使有静态库一起编译，但没有这行声明，编译器会隐式声明并在编译时有wraning
-include "mymath.h"  //.h中的ifndef是防止重复的引用
-
-int main(){
-    int a = 4;
-    int b = 6;
-    printf("add res = %d", add(a, b));
-    return 0;
-}
-
-
-
-//mymath.h
-#ifndef _MYMATH_H_
-#define _MYMATH_H_
-
-int add(int, int);
-int sub(int, int);
-
-#endif
-*/
-
-//结合以上知识，此时使用以下代码可以创建一个目录的结构
-mkdir inc
-mv mymath.h ./inc
-mkdir lib
-mv libmtlib.a lib
-gcc test.c ./lib/libmylib.a -o test -I ./inc
-```
-
-```c++
-//动态库制作
-//根据理论，动态库的文件应当生成与位置无关的代码，记结论，即在生成时加上-fPIC
-gcc add.c -o add.o -fPIC
-
-//制作库
-gcc -sharded -o libmymath.so add.o sub.o
-mv libmaymath.so ./lib
-
-//编译, -l so文件名 -L 库文件路径
-export LD_LIBRARY_PATH=./lib  //添加动态库路径，临时生效
-vim `/.bashrc //写入LD_LIBRARY_PATH=./lib  ， source .bashrc
-gcc test.c -o test -l mymath -L ./lib -I ./inc
-```
-
-gdb是用于程序调试的工具，功能强大。
-```c++
-//调试以前编译时要加-g
-gcc gdbtest.c -o gdbtest -g
-
-//进入调试模式
-gdb gdbtest
-
-//打印原代码
-list 1 //从第一行开始，简写l
-
-//设置断点
-break 52  //在52行断点，简写b
-
-//调试运行
-run  //简写r，停在断点处，出错调试直接查找到出错位置
-
-//下一步
-next //n，执行完下一行，如果是函数则也执行完函数
-step //s，如果是函数则进去
-
-//查看值
-print i //p
-
-//运行到结束
-cotinue
-
-//退出调试
-quit
-
-//设置main函数输入参数
-set args ...  //也可以run ...
-
-//条件断点
-b 41 if i=5
-
-//查看所有断点
-info b
-```
