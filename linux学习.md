@@ -431,7 +431,7 @@ int main(int argc, char* argv[]){
 
 但是了解了系统函数，还是推荐优先使用库函数。
 
-### fcntl
+### fcntl控制文件属性
 ```c++
 int fcntl(int fd, int cmd, .../* arg */);
 
@@ -443,7 +443,138 @@ flags |= O_NOBLOCK;  //或等于添加该属性，属于位运算
 int ref = fcntl(STDIN_FILENO, F_SETFL, flags);  
 ```
 
-### lseek
+### lseek调整读写指针位置，获取文件大小
+```c++
+off_t lseek(int fd, off_t offset, int whence);
+//offset 偏移量
+//whence 起始偏移位置
+
+int fseek(FILE *stream, long offset, int whence);  //库函数
+
+//例子
+char buf[1024];
+char msg[] = "hello i am ty";
+fd = open("s.txt", o_RDWR|O_CREAT, 0644);
+write(fd, msg, strlen(msg));
+//因此在这以前要加上以下代码
+lseek(fd, 0, SEEK_SET);
+while((n = read(fd, buf, 1))){
+    if(n < 0){
+        perror("read error");
+        exit(1);
+    }
+    write(STDOUT_FILENO, buf, n);  //该处输出没有，为什么？因为读写的指针位置一样，写完时指向的是文本末尾
+}
+close(fd);
+
+
+//获取文件大小
+int lenth = lseek(fd, 0, SEEK_END);
+```
+
+### inode结构体
+放文件的权限，类型，大小，时间，用户，磁盘盘号等信息。dentry为目录项。
+
+![Alt text](image-74.png)
+
+不同目录项创建文件有相同的inode号，那么就是读取的同一个地址，那么删除其中一个文件，inode记录减一，直到减到0，就没有文件用那个空间了。
+
+
+### 输入输出函数和stat
+```c++
+int stat(const char *path, struct stat *buf);  //其中传入参数为path，传出的参数stat通过指针返回到buf，存放文件属性，因此也叫输入输出函数。
+
+struct stat buf;
+int ret = stat("s.txt", &buf);
+if(ret < 0) ...
+printf("file size: %ld\n", buf.st_size);
+
+//通过man可以看到有几个函数可以通过buf.mode判断文件是什么类型的
+
+//stat会穿透符号连接，链接文件会输出指向的那个文件的类型，而不会判断该文件为链接文件,lstat不会符号穿透。
+```
+
+### link函数
+```c++
+//就是用于创建目录项的函数，硬连接
+int link(const char *oldpath, const char *newpath);
+
+link(argv[1], argv[2]);
+
+//重点unlink，硬连接数减到0并不会马上删除文件，而是等到所有使用该文件的进程结束后再删除
+先unlink ，后write，那么会write到缓存，然后在结束时释放文件
+```
+
+### 目录操作
+```c++
+DIR opendir(const char* name);
+int closedir(DIR *dirp);
+struct dirent *readdir(DIR *dirp);
+
+//重要
+struct dirent {
+    inode
+    char dname[]
+}
+```
+
+
+### 递归目录小程序
+```c++
+#include<stdio.h>
+#include<stdlib.h>
+#include<string.h>
+#include<unistd.h>
+#include<sysy/stat.h>
+#include<pthread.h>
+#include<dirent.h>
+
+void fetchdir(const char *dir){
+    char path[256];
+    DIR *dp;
+    struct dirent *sdp;
+
+    dp = opendir(dir);
+    if(dp == NULL){
+        perror("opendir error");
+        exit(1);
+    }
+
+    while((sdp = readdir(dp)) ! NULL){
+        if(strcmp(sdp->d_name, ".") || strcmp(sdp->d_name, "..") == 0){
+            continue;
+        }
+        sprintf(path, "%s/%s", dir, sdp->d_name);  //拼接绝对路径
+        isFile(path);  //递归
+    }
+
+    closedir(dp);
+}
+
+void isFile(const char* name){
+    struct stat sbuf;
+    if(stat(name, &sbuf) == -1){
+        fprintf(stderr, "isfile: can't access %s\n", name);
+        exit(1);
+    }
+    if((buf.st_mode & S_IFMT) == S_IFDIR){
+        fetchdir(name);  
+    }else{
+        printf("%ld %s\n", sbuf.st_size, name); //输出非目录文件的大小和名字
+    }
+}
+
+int main(int argc, char *argv){
+    if(argc == 1){
+        isFile(".");
+    }else{
+        isFile(argv[1]);
+    }
+
+    return 0;
+}
+```
+
 
 
 ## 进程学习
