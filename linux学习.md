@@ -575,6 +575,32 @@ int main(int argc, char *argv){
 }
 ```
 
+### 重定向
+```c++
+//cat myls.c > out重定向输出
+
+//使用dup或dup2复制文件描述符后，新文件描述符和旧文件描述符指向同一个文件，管道或网络连接，共享文件的锁定、读写位置和各项权限。
+//当关闭新的文件描述符时，通过旧文件描述符仍可操作文件。
+//当关闭旧的文件描述符时，通过新的文件描述符仍可操作文件。
+
+int dup(int oldfd); //返回新的文件符或-1
+int dup2(int oldfd, int newfd);
+
+
+int fd = open(argv[1], O_RDONLY);
+int newfd = dup(fd);
+write(newfd, "123456", 6);
+printf("newfd=%d", newfd);
+
+int fd1 = open(argv[1], O_RDWR);
+int fd2 = open(argv[2], O_RDWR);
+int fdret = dup2(fd1, fd2);
+if(fdret == -1) ...
+int ret = write(fd2, "12345", 5); //此时写入的是fd1指向的文件
+if(ret == -1) ...
+dup2(fd1, STDOUT_FILEON);
+printf("...........")  //输出到fd1中去了
+```
 
 
 ## 进程学习
@@ -584,6 +610,27 @@ int main(int argc, char *argv){
 ![Alt text](image-73.png)
 
 文件描述符表中记录了文件结构体FILE，这个对用户是不可见的。一个进程最多能打开1024个文件。
+
+MMU负责将虚拟内存映射到物理内存上去。
+
+![Alt text](image-75.png)
+
+MMU可以将虚拟内存看起来连续的内存映射到实际离散的物理内存中。为了安全，MMU会有个内存分级，分级时内核内容分配在0级，其他用户数据分配在3级。
+
+进程控制块结构体`struct task_struct`：
+```c++
+pid  //进程id
+state  //进程状态
+...
+//进程工作目录，即shell运行时的目录
+//信号相关信息
+```
+
+### 环境变量
+```c++
+echo $PATH   //全局路径
+echo $SHELL  //当前目录
+```
 
 ### 阻塞非阻塞
 常规读文件不会阻塞。产生阻塞的场景：
@@ -628,6 +675,9 @@ trygain:
     }
 ```
 该代码将输入终端设置为非阻塞，并不停的访问是否有读到，是一种轮询的方式。不是一个好设计，好设计是中断。
+
+
+
 
 ### 进程终止
 基本的文件操作方法和进程的终止：
@@ -753,6 +803,8 @@ int main(int argc, char* argv[]) {
 ```
 上面的程序关于到了fprintf和子进程复制父进程参数和缓存，以及独立的部分，看懂了就可以明白子进程对父进程的继承关系。
 
+**重点：**父子进程共享：文件描述符，mmap建立的映射区
+
 ### 僵尸进程
 子进程结束了，父进程还没结束，僵尸进程避免方法为：
 * 父进程隔一段时间查询子进程是否结束，调用wait()和waitid()通知内核释放僵尸进程。
@@ -789,11 +841,12 @@ int main(int argc, char* argv[]) {
 * pid_t wait(int *status);等待所有子进程。返回可能是任何一个子进程的ID。
 * pid_t waitpid(pid_t pid, int *status, int options);等待特定的子进程。
 
-这两个函数都是成功调用就返回等待的子进程，失败返回-1。statue指等待的子进程是以什么状态结束的，可以使用以下代码打出退出状态。
+这两个函数都是成功调用就返回等待的子进程，失败返回-1。statue指等待的子进程是以什么状态结束的，可以使用以下代码打出退出状态。使用man查询各种用法。
 
 ![Alt text](image-65.png)
 
 ```c
+//wait不好的地方就在，下面例子中的进程树中只能随机回收其中一个子进程，其余可能成为孤儿进程
 int status;
 wait(&status);
 out_status(status);
@@ -804,6 +857,23 @@ void out_status(int status) {
     }
     ...
 }
+
+WIFEXITED(status)   //ture子进程正常终止
+WEXITSTATUS(status)    //退出状态
+
+WIFSIGNALED(status)   //true子进程被信号终止，所有异常都是因为信号终止
+WTERMSIG(status)    //检查是哪种信号  kill -l 可以查询哪种信号
+//之后还有暂停和继续的判断
+```
+
+```c++
+pid1 = waitpid(pid, &status, WHNOHANG);
+if(pid == 0)  //第三参数指定了WHNOHANG，指没回收掉也直接返回，且子进程没有结束
+if(pid1 < 0) //失败
+
+
+waitpid(0, &status, option)  //回收所有子进程，阻塞回收，第一参数-1指回收任意一个子进程
+while(waitpid(-1, NULL, WHNOHANG) != -1){...}  //非阻塞回收所有
 ```
 kill -l 命令可以看到每种信号的编号。比如某些终止信号和中断信号。
 
@@ -825,3 +895,129 @@ fork后常常要使用exec函数以执行另一个可执行程序（第三方写
 
 ### 进程状态
 ![Alt text](image-68.png)
+
+### 进程树
+```c++
+int main(){
+    int i;
+
+    for (i = 0; i < 5; i++) {
+        if (fork() == 0) {
+            break;
+        }
+    }
+    
+    if (i == 5){
+        printf("parent\n");
+        int status;
+        wait(&status);
+    } else {
+        printf("child %d\n", i+1);
+    }
+    return 0;
+}
+```
+
+### 多进程下的gdb
+当运行到fork时，gdb该进入子进程还是父进程
+
+```c++
+gdb hello_fork
+b 12
+r
+p i
+n
+set follow-fork-mode child  //选择进入父进程
+n
+```
+
+## 进程通信
+内核中有一个缓冲区，用作进程通信。
+
+![Alt text](image-76.png)
+
+管道运用需要进程有一定关系，父子，兄弟才能用上。信号功能简单，但是可以无限制使用。套接字稳定但是复杂。
+
+### 管道
+![Alt text](image-77.png)
+
+```c++
+int pipe(int pipefd[2]);  //一边是读一边是写
+
+int main(){
+    int ret;
+    int fd[2];
+    pid_t pid;
+    char buf[1024];
+
+    ret = pipe(fd);
+    if (ret == -1){
+        perror("pipe fail");
+        exit(1);
+    }
+
+    pid = fork();
+    if(pid < 0){
+        perror("fork fail");
+    } else if (pid > 0) {
+        close(fd[0]);  //关闭父进程读端
+        write(fd[1], "hello pipe", strlen("hello pipe"));  //向写端写入
+        close(fd[1]);
+        wait();
+    } else {
+        close(fd[1]);  //子进程关闭写端
+        ret = read(fd[0], buf, sizeof(buf));
+        write(STDOUT_FILENO, buf, ret);
+        close(fd[0]);
+    } 
+    return 0;
+}  
+```
+
+![Alt text](image-78.png)
+
+```c++
+//实现ls | wc -l
+
+#include<stdlib.h>
+#include<string.h>
+#include<unistd.h>
+#include<errno.h>
+#include<pthread.h>
+
+int main(){
+    int ret;
+    int fd[2];
+    pid_t pid;
+    char buf[1024];
+
+    ret = pipe(fd);
+    if (ret == -1){
+        perror("pipe fail");
+        exit(1);
+    }
+
+    pid = fork();
+    if(pid < 0){
+        perror("fork fail");
+    } else if (pid > 0) {
+        close(fd[0]);   //关父读端
+        dup2(fd[1], STDOUT_FILENO);  //ls输出重定向到管道写
+        execlp("ls", "ls", NULL);
+        wait(NULL);
+    } else {
+        close(fd[1]);
+        dup2(fd[0], STDIN_FILENO);  //输入重定向到读
+        execlp("wc", "wc", "-l", NULL);  //显示行数
+    }   
+    return 0;
+}
+```
+
+```c++
+//兄弟进程实现ls | wc -l，以后自己写写
+```
+
+```c++
+ulimit -a  //查询pipe size，stack size等各种数据
+```
