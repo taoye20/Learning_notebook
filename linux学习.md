@@ -625,6 +625,7 @@ state  //进程状态
 //进程工作目录，即shell运行时的目录
 //信号相关信息
 ```
+注意pdb中的文件描述符就是下面例子中返回的int fd，文件描述符父子进程共享这个非常关键，父进程open时fd=1，那子进程再打开，fd也是1.
 
 ### 环境变量
 ```c++
@@ -946,7 +947,7 @@ int pipe(int pipefd[2]);  //一边是读一边是写
 
 int main(){
     int ret;
-    int fd[2];
+    int fd[2];  //会同时被父进程和子进程继承，而父子进程共享文件描述符，因此pipe将缓存伪装成文件，就形成了管道，为父子共享
     pid_t pid;
     char buf[1024];
 
@@ -1021,3 +1022,109 @@ int main(){
 ```c++
 ulimit -a  //查询pipe size，stack size等各种数据
 ```
+
+
+### 命名管道FIFO
+解决没有关系的进程中的通信。
+```c++
+int mkfifo(const char *pathname, mode_t mode);  //成功返回0，错-1
+
+int ret = mkfifo("mytestfifo", 0644);  //和maakefifo命令一样的作用，此时目录中多出一个mytestfifo文件
+
+//进程1
+int fd, i;
+char buf[1024];
+
+fd = open(argv[1], O_WRONLY);
+while(1){
+    sprintf(buf, "hello%d\n", i++);
+    write(fd, buf, sizeof(buf));
+}
+close(fd);
+
+
+//进程2
+fd = open(argv[1], O_RDONLY);
+while(1){
+    int len = read(fd, buf, sizeof(buf));
+    write(STDOUT_FILEON, buf, len);
+    sleep(3);
+}
+close(fd);
+```
+支持多写入，单读出。
+
+
+### 文件完成进程通信
+就是文件操作，打开文件写入，然后打开文件读取。
+
+
+### 存储映射I/O
+![Alt text](image-79.png)
+
+```c++
+void *mmap(void *addr, size_t length, int prot, int flags, int fd, off_t offset);  //建立映射区
+
+int munmap(void* addr, size_t length);  //释放映射区
+```
+
+![Alt text](image-80.png)
+
+```c++
+int main(int argc, char* argv[]){
+    char *p = NULL;
+    int fd;
+    fd = open(argv[1], O_RDONLY|O_CREAT|O_TRUNC, 0644);
+    //lseek(fd, 10, SEEK_END);
+    //write(fd, "\0", 1);
+    ftruncate(fd, 10);
+
+    int len = lseek(fd, 0, SEEK_END);
+    p = mmap(NULL, len, PROT_READ|PROT_WRITE, MAP_SHARED, fd, 0);
+    if(p == MAP_FAILED) {
+        perror("error mmap");
+        exit(1);
+    }
+
+    //通过p对文件读写
+    strcpy(p, "hello mmap");  //写操作
+    printf(p);   //读操作
+
+    //释放映射区
+    int ret = munmap(p, len);
+    if(ret == -1){
+        
+    }
+
+    return 0;
+}
+```
+
+**重点**：注意事项
+![Alt text](image-82.png)
+
+```c++
+//保险写法
+open(_RDWR);
+
+mmap(NULL, 有效大小，PROT_READ|PROT_WRITE, MAP_SHARED, fd, 0);
+```
+![Alt text](image-83.png)
+
+
+## 信号
+每个进程收到的所有信号都是由内核负责发送的，内核处理。
+
+![Alt text](image-84.png)
+
+信号处理的方式：
+* 执行默认动作
+* 忽略（丢弃）
+* 捕捉（调用用户处理函数）
+
+![Alt text](image-85.png)
+
+![Alt text](image-86.png)
+本质就是位图，需要等到阻塞变为0，未决才会立即执行并转回0.
+
+![Alt text](image-87.png)
