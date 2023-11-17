@@ -1128,3 +1128,272 @@ mmap(NULL, 有效大小，PROT_READ|PROT_WRITE, MAP_SHARED, fd, 0);
 本质就是位图，需要等到阻塞变为0，未决才会立即执行并转回0.
 
 ![Alt text](image-87.png)
+
+信号四要素是认识一个信号的关键。信号使用之前先确定四要素。
+
+```c++
+kill -l  //查看所有信号
+man 7 signal  //查看信号用法
+```
+
+![Alt text](image-88.png)
+
+1号，9号，19号进程，9和19号是无敌的，无条件。
+
+10号，12号是用户可定义信号。
+
+17号默认为忽略
+
+![Alt text](image-89.png)
+
+
+### kill
+```c++
+//kill 命令不再累述
+//kill函数
+int kill(pid_t pid, int sig);  //sig建议使用宏名，不同系统的编号可能不同
+//pid = -10351表示kill进程组编号为10351的进程组
+```
+
+
+### alarm函数
+```c++
+//每个进程有且只有一个计时器，且与进程状态没有关系，使用自然计时法，时间到发SIGNALRM给进程
+unsigned int alarm(unsigned int seconds);
+
+//取消定时，返回旧的闹钟剩余时间
+alarm(0);
+
+time ./alarm //运行程序的实际时间，实际执行时间 = 系统时间 + 用户时间 + 等待时间。其中等待时间往往最长
+
+//高配版计时函数
+int setitimer(...)
+```
+
+![Alt text](image-90.png)
+
+### 信号集操作函数
+* 阻塞信号集
+* 未决信号集
+
+操作方法是：首先创建一个自定义信号集set，然后设置它，最后将其设置到信号集中。
+
+![Alt text](image-91.png)
+
+```c++
+void  print_set(sigset_t *set){
+    int i;
+    for(i = 1; i < 32; i++){
+        if(sigismember(set, i)){
+            putchar('1');
+        }
+        else{
+            putchar('0');
+        }
+    }
+    printf("/n");
+}
+
+int main(int argc, char* argv[]){
+    sigset_t set, oldset, pedset;
+    int ret = 0;
+
+    sigemptyset(&set);
+    sigeaddset(&set, SIGINT);   //加入一个信号
+
+    ret = sigprocmask(SIG_BLOCK, &set, &oldset);
+    if(ret == -1){
+        perror("..");
+        exit(1);
+    }
+
+    ret = sigpending(&pedset);  //查看现在的设置
+    if(ret == -1){
+        perror("..");
+        exit(1);
+    }
+
+    print_set(&pedset);
+    sleep(1);
+    return 0;
+}
+```
+
+### 函数注册一个捕捉信号
+signal,只做注册，内核等到有该信号就捕捉，但不是该函数捕捉，而是内核把信号抓住了。
+```c++
+#include<stdlib.h>
+#include<string.h>
+#include<unistd.h>
+#include<errno.h>
+#include<pthread.h>
+#include<stdio.h>
+#include<signal.h>
+
+
+void  sig_catch(int sigo){   //回调函数，内核是调用者
+    printf("catch you %d/n", sigo);
+}
+
+int main(int argc, char* argv[]){
+    struct sigaction act, oldact;
+    act.sa_handler = sig_catch;   //设置调用函数名
+    sigemptyset(&(act.sa_mask));  //在运行时mask屏蔽字，会屏蔽所选的信号，在捕捉调用回调函数时，不会重复捕捉和对该信号产生反应，但其他信号可以正常执行
+    sigaddset(act.sa_mask, SIGQUIT);  //执行回调函数时增加一个屏蔽信号
+    act.sa_flags = 0;             //通常设置为0
+
+    int ret = sigaction(SIGINT, &act, &oldact);   //注册信号捕捉函数
+    if(ret == -1){
+        perror(".");
+    }
+
+    while(1);
+    return 0;
+}
+```
+
+### SIGCHLD信号
+实现信号回收子进程。SIGCHLD信号在子进程终止时会发出。
+```c++
+void sys_err(const char *str){
+    perror(str);
+    exit(1);
+}
+
+void catch_child(int signo){
+    pid_t pid;
+    int status;
+    /*pid = wait(NULL);
+    if(pid == -1){
+        sys_err("..")
+    }*/
+
+    while((pid = waitpid(-1, &status, 0)) != -1){  //循环回收防止僵尸进程
+        if (WIFEXITED(status)){
+            printf("catch child %d, ret = %d\n", pid, WEXITSTATUS(status));
+        }
+    }
+}
+
+int main(int argc, char* argv[]){
+    pid_t pid;
+
+    int i;
+    for(i = 0; i < 5; i++){
+        if(fork() == 0){
+            sys_err("fork err");
+        }
+        if(i == 5){
+            struct sigaction act;
+            act.sa_handler = catch_child;
+            sigemptyset(&(act.sa_mask));
+            act.sa_flags = 0;
+
+            sigaction(SIGCHLD, &act, NULL);
+
+            printf("i am parent, pid = %d\n", getpid());
+            while(1);
+        }else{
+            printf("i am child pid = %d\n", getpid());
+        }
+    }
+
+
+    return 0;
+}
+```
+
+### 创建会话
+![Alt text](image-92.png)
+
+执行后三个ID合一，pid, pgid, sid.
+```c++
+pid_t getsid(pid_t pid);  //成功返回进程的会话ID
+
+pid_t setsid(void);  //创建会话，并且以自己的ID为进程组ID，也是新会话ID
+
+//例子
+int main(int argc, char* argv[]){
+    pid_t pid;
+    if((pid = fork()) == -1){
+        sys_err("..");
+    } else if (pid == 0) {
+        printf(...);
+
+        setsid();
+
+        printf();
+    }
+
+    return 0;
+}
+```
+
+
+### 守护进程
+后台服务程序，周期的执行某些任务或等待处理发生的事件，一般以d结尾。没有终端，一直执行。终止守护进程只能通过命令kill来终止。
+
+![Alt text](image-93.png)
+![Alt text](image-94.png)
+
+```c++
+void sys_err(const char *str){
+    perror(str);
+    exit(1);
+}
+
+
+int main(int argc, char* argv[]){
+    pid_t pid;
+    int ret, fd;
+
+    if((pid = fork()) == -1){
+        sys_err("..");
+    } else if (pid == 0) {
+        pid = setsid();   //创建一个会话
+        if(pid == -1){
+            sys_err("set err");
+        }
+
+        ret = chdir("/home");  //改变工作目录位置
+        if(ret == -1){
+            sys_err("chdir err");
+        }
+
+        umask(0022);    //改变访问权限掩码，用户权限不变，群组权限减掉 2，也就是去掉写（w）权限，其他用户减 2，也就是去掉写权限（w）
+
+        close(STDERR_FILENO);   //关闭文件描述符0
+        fd = open("/dev/null", O_RDWR);  //此时fd就是0
+        if(fd == -1){
+            sys_err("open err");
+        }
+        dup2(fd, STDOUT_FILENO);   //重定向输出和错误输出
+        dup2(fd, STDERR_FILENO);
+
+        
+    } else {
+        exit(0);
+    }
+
+    return 0;
+}
+```
+
+
+## 线程
+linux中线程是LWP，轻量级进程。
+
+进程PCB拥有独立的空间，而线程中也有自己的PCB，但不是独立的地址空间，而是大家放一块。
+
+![Alt text](image-95.png)
+
+查看一个进程下的线程的命令：
+```c++
+ps -Lf pid  //pid为进程号
+```
+
+对于linux而言最小执行单位为线程，也就是一个LWP，当一个进程创建了好几个线程，那么在内核侧可能分配到该进程的概率就会增大，因为内核看到用户侧的线程其实也是一个个小进程。
+
+![Alt text](image-96.png)
+
+重点：**线程共享文件描述符和数据段，因此全局数据是共享的，通信不用像进程那样麻烦，又用管道又用文件的**
