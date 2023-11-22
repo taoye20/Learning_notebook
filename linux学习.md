@@ -1397,3 +1397,336 @@ ps -Lf pid  //pid为进程号
 ![Alt text](image-96.png)
 
 重点：**线程共享文件描述符和数据段，因此全局数据是共享的，通信不用像进程那样麻烦，又用管道又用文件的**
+
+### 线程创建
+```c++
+//获取线程ID
+pthread_t pthread_self(void);
+
+//创建线程
+int pthread_create(pthread_ *thread, const pthread_attr_t *attr, void *(*start_routine)(void *), void *arg);  //参数2：配置参数，参数3：回调函数，参数4：传给回调函数的参数。
+
+
+//例子
+void *tfn(void* arg){
+    printf("thread: pid = %d, tid = %lu\n", getpid(), pthread_self());
+    
+}
+
+int main(int argc, char* argv[]){
+    pthread_t tid;
+
+    tid = pthread_self();
+
+    int ret = pthread_create(&tid, NULL, tfn, NULL);  //使用默认参数创建线程
+    if(ret != 0) {
+        sys_err("..");
+    }
+
+    printf("main: pthread = %lu\n", tid);  //注意是lu long unsign
+
+    sleep(1);   //防止主线程立即退出导致子线程还没执行就销毁了空间
+    return 0;
+}
+
+
+
+
+//创建多个线程的例子
+for(i = 0; i < 5; i++){
+    pthread_create(&tid, NULL, tfn, (void*)i);  //注意传入参数
+}
+
+void *tfn(void* arg){
+    int i = (int)arg;  //注意这里的转型
+
+    printf("%dthread: pid = %d, tid = %lu\n", i+1, getpid(), pthread_self());
+    
+}
+```
+
+### pthread_exit线程退出
+相当于exit
+```c++
+void pthread_exit(void *retval);  //退出当前的线程，退出值，无退出值时为NULL
+
+//例子
+if(i == 2) pthread_exit(NULL);  //在上面的循环代码中可以将第3个线程直接退出而不打印
+```
+
+### pthread_join阻塞等待
+相当于waitpid
+```c++
+int pthread_join(pthread_t tid, void **retval); //区分tid和create不一样，是传值不是传指针，且传出参数为**
+
+//例子
+struct thrd
+{
+    int var;
+    char str[256];
+};
+
+void *tfn(void* arf){
+    struct thrd *tval;
+
+    tval = malloc(sizeof(tval));  //必须创建到堆区，如果不是，那么局部变量的地址不能作为返回值
+    tval->var = 100;
+    strcpy(tval->str, "hello thread");
+    
+    return (void *)tval;  //返回结构体指针
+}
+
+int main(int argc, char* argv[]){
+    pthread_t tid;
+    struct thrd *retval;
+
+    int ret = pthread_create(&tid, NULL, tfn, NULL);  //使用默认参数创建线程
+    if(ret != 0) {
+        sys_err("..");
+    }
+
+    ret = pthread_join(tid, (void **)&retval);
+    if(ret != 0) {
+        sys_err("..");
+    }
+
+    printf("child thread var=%d, str=%s\n", retval->var, retval->str);
+
+    pthread_exit(NULL);
+}
+```
+
+线程不回收和进程一样也可以称为僵尸。
+
+
+### pthread_cancel杀死线程
+相当于kill
+```c++
+int pthread_cancel(pthread_t thread);  //该函数应当有进入系统调用的契机，即需要取消点
+
+//在调用线程的回调函数中加入一个手动的取消点
+pthread_testcancel();
+```
+
+### pthread_detach线程分离
+```c++
+int pthread_detach(pthread_t pthread);  
+
+//例子
+void *tfn(void* arg){
+    printf("thread: pid = %d, tid = %lu\n", getpid(), pthread_self());
+    
+}
+
+int main(int argc, char* argv[]){
+    pthread_t tid;
+
+    tid = pthread_self();
+
+    int ret = pthread_create(&tid, NULL, tfn, NULL);  //使用默认参数创建线程
+    if(ret != 0) {
+        sys_err("..");
+    }
+
+    printf("main: pthread = %lu\n", tid);  //注意是lu long unsign
+
+    sleep(1);   //防止主线程立即退出导致子线程还没执行就销毁了空间
+    return 0;
+}
+```
+
+### pthread_detach线程分离
+就是等线程执行完毕就直接回收，和join功能类似
+```c++
+void *tfn(void* arg){
+    printf("thread: pid = %d, tid = %lu\n", getpid(), pthread_self());
+    
+}
+
+int main(int argc, char* argv[]){
+    pthread_t tid;
+
+    //创建子线程
+    int ret = pthread_create(&tid, NULL, tfn, NULL);  
+    if(ret != 0) {
+        fprintf(stderr, "create error: %s\n", strerror(ret)); //对于线程的错误推荐使用这种方法
+        exit(1);
+    }
+
+    //设置线程分离
+    ret = pthread_detach(tid);
+    if(ret != 0){
+        fprintf(stderr, "detach error: %s\n", strerror(ret)); //对于线程的错误推荐使用这种方法
+        exit(1);
+    }
+
+    sleep(1);  //保证上面执行完毕
+
+    //回收线程
+    /*ret = pthread_join(tid, NULL);   //报错线程id无效，因为线程分离相当于回收线程，即运行完了就回收，所以不用再次回收
+    if(ret != 0){
+        fprintf(stderr, "join error: %s\n", strerror(ret)); //对于线程的错误推荐使用这种方法
+        exit(1);
+    }*/
+
+    printf("main: pthread = %lu\n", tid);  //注意是lu long unsign
+
+    sleep(1);   //防止主线程立即退出导致子线程还没执行就销毁了空间
+    return 0;
+}
+```
+
+### 线程属性
+![Alt text](image-97.png)
+
+![Alt text](image-98.png)
+
+![Alt text](image-99.png)
+
+```c++
+void *tfn(void* arg){
+    printf("thread: pid = %d, tid = %lu\n", getpid(), pthread_self());
+    
+}
+
+int main(int argc, char* argv[]){
+    pthread_t tid;
+    pthread_attr_t attr;
+
+    //创建属性结构体
+    int ret = pthread_attr_init(&attr);
+    if(ret != 0) {
+        fprintf(stderr, "attr_init error: %s\n", strerror(ret)); //对于线程的错误推荐使用这种方法
+        exit(1);
+    }
+
+    //设置为分离属性
+    ret = pthread_attr_setdetachstate(&attr, PTHREAD_CREATE_DETACHED); 
+    if(ret != 0) {
+        fprintf(stderr, "attr_setdetach error: %s\n", strerror(ret)); //对于线程的错误推荐使用这种方法
+        exit(1);
+    }
+
+    //创建子线程
+    int ret = pthread_create(&tid, &attr, tfn, NULL);  
+    if(ret != 0) {
+        fprintf(stderr, "create error: %s\n", strerror(ret)); //对于线程的错误推荐使用这种方法
+        exit(1);
+    }
+
+    //销毁属性结构体
+    int ret = pthread_attr_destroy(&attr);
+    if(ret != 0) {
+        fprintf(stderr, "attr_destory error: %s\n", strerror(ret)); //对于线程的错误推荐使用这种方法
+        exit(1);
+    }
+
+    sleep(1);  //保证上面执行完毕
+
+    //已经设置了自动的detach，后面就不用一个个的加join了
+    //设置阻塞回收
+    /*ret = pthread_join(tid, NULL);
+    if(ret != 0){
+        fprintf(stderr, "join error: %s\n", strerror(ret)); //对于线程的错误推荐使用这种方法
+        exit(1);
+    }*/
+
+    printf("main: pthread = %lu\n", tid);  //注意是lu long unsign
+
+    sleep(1);   //防止主线程立即退出导致子线程还没执行就销毁了空间
+    return 0;
+}
+```
+
+### 线程同步
+![Alt text](image-100.png)
+
+实现方法就是为线程操作加锁。就是被访问文件身上有个锁，线程被切换时，去拿文件的锁就是拿不到的。线程的锁是建议锁，按正常规则是是有锁控制的，但是如果有线程希望直接访问文件，也是可以在有锁的情况下访问得到的。因此锁不是强制，但是建议使用规则，先拿锁再操作。
+
+```c++
+//该程序会不规律交替输出，应当加锁
+//子线程小写输出
+void *tfn(void* arg){
+    whiel(1){
+        printf("hello");
+        sleep(rand() % 3);
+        printf("world\n");
+        sleep(rand() % 3);
+    }
+    
+}
+
+int main(int argc, char* argv[]){
+    pthread_t tid;
+
+    srand(time(NULL));
+
+    //创建子线程
+    int ret = pthread_create(&tid, NULL, tfn, NULL);  
+    if(ret != 0) {
+        fprintf(stderr, "create error: %s\n", strerror(ret)); //对于线程的错误推荐使用这种方法
+        exit(1);
+    }
+
+    //父线程大写输出
+    while(1){     
+        printf("HELLO");
+        sleep(rand() % 3);
+        printf("WORLD\n");
+        sleep(rand() % 3);
+    }
+
+    return 0;
+    
+}
+```
+
+```c++
+pthread_mutex_t lock;  //定义一个全局的互斥锁
+
+//子线程小写输出
+void *tfn(void* arg){
+    whiel(1){
+        pthread_mutex_lock(&lock);  //加锁
+        printf("hello");
+        sleep(rand() % 3);
+        printf("world\n");
+        sleep(rand() % 3);
+        pthread_mutex_unlock(&lock);  //解锁
+    }
+    
+}
+
+int main(int argc, char* argv[]){
+    pthread_t tid;
+
+    //初始化锁
+    int ret = pthread_mutex_init(&lock, NULL);  //一参数锁结构体，二参数配置结构体attr，返回int 0为成功
+    if(ret != 0) {
+        fprintf(stderr, "create error: %s\n", strerror(ret)); //对于线程的错误推荐使用这种方法
+        exit(1);
+    }
+
+    srand(time(NULL));
+
+    //创建子线程
+    int ret = pthread_create(&tid, NULL, tfn, NULL);  
+    if(ret != 0) {
+        fprintf(stderr, "create error: %s\n", strerror(ret)); //对于线程的错误推荐使用这种方法
+        exit(1);
+    }
+
+    //父线程大写输出
+    while(1){     
+        pthread_mutex_lock(&lock);  //加锁
+        printf("HELLO");
+        sleep(rand() % 3);
+        printf("WORLD\n");
+        sleep(rand() % 3);
+        pthread_mutex_unlock(&lock);  //解锁
+    }
+
+    return 0;
+    
+}
+```
