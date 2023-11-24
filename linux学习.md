@@ -1398,6 +1398,8 @@ ps -Lf pid  //pid为进程号
 
 重点：**线程共享文件描述符和数据段，因此全局数据是共享的，通信不用像进程那样麻烦，又用管道又用文件的**
 
+线程不共享的就是栈区，函数有自己的栈区，而其他部分是共享的，因此，线程的独立性也是面对函数的，在下面可以看到创建线程后就是独立出来回调函数，回调函数独立执行，并可以设置执行完毕后自行回收（通过）
+
 ### 线程创建
 ```c++
 //获取线程ID
@@ -1643,6 +1645,8 @@ int main(int argc, char* argv[]){
 
 实现方法就是为线程操作加锁。就是被访问文件身上有个锁，线程被切换时，去拿文件的锁就是拿不到的。线程的锁是建议锁，按正常规则是是有锁控制的，但是如果有线程希望直接访问文件，也是可以在有锁的情况下访问得到的。因此锁不是强制，但是建议使用规则，先拿锁再操作。
 
+### 互斥锁
+
 ```c++
 //该程序会不规律交替输出，应当加锁
 //子线程小写输出
@@ -1729,4 +1733,188 @@ int main(int argc, char* argv[]){
     return 0;
     
 }
+```
+
+加锁粒度要小，即用完就立即放开，不要一直占用。
+
+互斥锁可以看成初值为1，加锁是减减操作，解锁是加加操作，后面还会介绍信号量。
+
+try锁，就是尝试加锁，不成功返回信号。
+
+
+### 死锁
+* 对一个锁反复lock
+* 线程1拥有A锁请求B锁，线程2拥有B锁请求A锁。
+
+
+### 读写锁
+* 读共享，写独占
+* 写锁优先级高
+* 锁只有一把（读写共用，写就不能读）
+
+```c++
+int pthread_rwlock_init(pthread_rwlock_t *restrict rwlock, const pthread_rwlockattr_t *restrict attr);
+
+int pthread_rwlock_rdlock(pthread_rwlock_t *rwlock);  //读锁
+
+int pthread_rwlock_wrlock(pthread_rwlock_t *rwlock);   //写锁，注意虽然分读写锁，但是它是用于区分优先级，加上的锁只有一个，因此下面unlock只有一个函数不分读写。
+
+int pthread_rwlock_unlock(pthread_rwlock_t *rwlock);
+
+int pthread_rwlock_destory(pthread_rwlock_t *rwlock);
+
+
+//例子
+int counter;
+pthread_rwlock_t rwlock;  //定义一个全局的读写
+
+void *th_write(void *arg){
+    int i = (int)arg;
+    int t;
+    
+    while(1){
+        pthread_rwlock_wrlock(&rwlock);
+        t = counter;
+        usleep(1000);
+        printf("===write %d: %lu: counter=%d, counter++=%d", i, pthread_self(), t, ++counter);
+        pthread_rwlock_unlock(&rwlock);
+        usleep(10000);
+    }
+    return NULL;
+}
+
+void *th_read(void *arg){
+    int i = (int)arg;
+
+    while(1){
+        pthread_rwlock_rdlock(&rwlock);
+        printf("............read %d: %lu %d\n", i, pthread_self(), counter);
+        pthread_rwlock_unlock(&rwlock);
+        usleep(2000);
+    }
+
+    return NULL;
+}
+    
+int main(void){
+    int i;
+    pthread_t tid[8];
+
+    //读写锁初始化
+    pthread_rwlock_init(&rwlock, NULL);
+
+    for(i = 0; i < 3; i++){
+        pthread_create(&tid[i], NULL, th_write, (void*)i);
+    }
+
+    for(i = 3; i < 8; i++){
+        pthread_create(&tid[i], NULL, th_read, (void*)i);
+    }
+
+    for(i = 0, i < 8; i++){
+        pthread_join(&tid[i], NULL);
+    }
+
+    pthread_rwlock_destroy(&rwlock);
+
+}
+```
+
+### 条件变量
+![Alt text](image-101.png)
+
+wait会阻塞线程并使线程在等待lock的状态，可以想象成在饭堂排队等别人打饭，别人打完了叫下一个，我就上去占着窗口打饭，最后我打完饭了要记得手动让开窗口（unlock）让下一个来打。
+
+cond_wait函数当条件满足时，就会加锁并开始后面的操作。什么时候得知条件满足呢？当收到信号pthread_cond_signal()时，就可以不阻塞在pthread_cond_wait()上了。
+
+生产者消费者模式：
+
+![Alt text](image-102.png)
+
+```c++
+#include<stdlib.h>
+#include<string.h>
+#include<unistd.h>
+#include<errno.h>
+#include<pthread.h>
+#include<stdio.h>
+#include<signal.h>
+#include<sys/types.h>
+
+//信息的链表
+struct msg{
+    struct msg* next;
+    int num;
+};
+
+//创建一个实例
+struct msg* head = NULL;
+
+//静态初始化互斥锁和条件变量
+pthread_mutex_t lock = PTHREAD_MUTEX_INITIALIZER;
+pthread_cond_t has_product = PTHREAD_COND_INITIALIZER;
+    
+void* consumer(void* p){
+    struct msg* mp;
+    
+    while (1){  //这里面是重点
+        pthread_mutex_lock(&lock);
+        while(head == NULL){   //单个消费者可以用if，但是如果消费者多了，有可能有其他消费者因lock被卡在这里，等其他lock完了，下面mp会读NULL进去，出错。
+            pthread_cond_wait(&has_product, &lock);
+        }
+        mp = head;
+        head = head->next;
+        pthread_mutex_unlock(&lock);
+
+        printf("consume %lu---%d\n", pthread_self(), mp->num);
+        free(mp);
+        sleep(rand() % 5);
+    }
+    
+    
+}
+
+void* producer(void* p){
+    struct msg* mp;
+
+    while(1){
+        mp = malloc(sizeof(struct msg));
+        mp->num = rand() % 1000 + 1;
+
+        pthread_mutex_lock(&lock);
+        mp->next = head;
+        head = mp;
+        pthread_mutex_unlock(&lock);
+
+        pthread_cond_signal(&has_product);  //唤醒wait中的线程
+        sleep(rand() % 5);
+    }
+    
+}
+
+int main(void){
+    pthread_t pid, cid;
+    srand(time(NULL));
+
+    pthread_create(&pid, NULL, producer, NULL);
+    pthread_create(&cid, NULL, consumer, NULL);
+
+    pthread_join(&pid, NULL);
+    pthread_join(&cid, NULL);
+
+    return 0;
+}
+```
+
+
+### 信号量
+信号量相当于初始化值为n的互斥量（互斥量初始化为1，决定了同一时刻只有一个线程可以在锁中的代码里操作），而表示可以有n个同时在里面。
+
+该函数还可以用于进程间的同步（不止线程可以用）
+```c++
+sem_t sem;
+sem_init(sem_t* sem, int pshared, unsigned int n);  //第二个参数0用于线程间同步，1用于进程间同步，第三参数为初始值n，最大为8
+sem_destory()
+sem_wait(sem_t* sem) //加锁，--操作
+sem_post()  //解锁，++操作
 ```
