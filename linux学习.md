@@ -1406,7 +1406,7 @@ ps -Lf pid  //pid为进程号
 pthread_t pthread_self(void);
 
 //创建线程
-int pthread_create(pthread_ *thread, const pthread_attr_t *attr, void *(*start_routine)(void *), void *arg);  //参数2：配置参数，参数3：回调函数，参数4：传给回调函数的参数。
+int pthread_create(pthread_t *thread, const pthread_attr_t *attr, void *(*start_routine)(void *), void *arg);  //参数2：配置参数，参数3：回调函数，参数4：传给回调函数的参数。
 
 
 //例子
