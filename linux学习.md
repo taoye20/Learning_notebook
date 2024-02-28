@@ -20,6 +20,20 @@ find /sbin -perm +700 |xargs ls -l  //xargs捕获输出并管道操作
 ```
 
 ```c++
+//查看网络相关信息
+ifconfig
+
+netstat -nlp   //查看TCP连接情况
+ss -ltnp
+
+ip route   //查看网络地址转发
+
+sar -n DEV  //显示网口的统计数据；
+sar -n EDEV  //显示关于网络错误的统计数据；
+sar -n TCP   //显示 TCP 的统计数据
+```
+
+```c++
 //输出重定向
 command > file	//将输出重定向到 file。
 command < file	//将输入重定向到 file。

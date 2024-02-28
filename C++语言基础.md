@@ -82,7 +82,7 @@
 
 ## 继承
 ### 友元
-友元可以访问到该类中的private
+友元可以访问到该类中的private，该类声明后func后，其他类访问如`room.func()`时可以执行
 ```c++
 class room{
   //全局函数作为友元
@@ -136,8 +136,8 @@ public:
 
 void test(){
   Son s;
-  int a = s.m_a;  //10
-  int a = s.Base::m_a;  //20，这里的意思是加入作用域
+  int a = s.m_a;  //20
+  int a = s.Base::m_a;  //10，这里的意思是加入作用域
 
   s.func();  //会隐藏所有的父类同名函数，输出为子函数
   s.Base::func();  //这样调用父类的函数
@@ -199,7 +199,16 @@ void test(){
 
 动态多态的场景是：有继承，且子类重写父类函数（重写中函数返回类型，函数名，参数列表全部相同）。父类指针或引用，执行子类对象成员。
 
-若加入了virtual后，sizeof(Animal)变成了4字节（32位系统），说明此时类中保存了一个指针。
+若加入了virtual后，sizeof(Animal)变成了4字节（32位系统），说明此时类中保存了一个指针。注意，在一开始一个类只占有一字节，除非内有变量，则占用变量的大小。
+```c++
+class CBase 
+{ 
+    int a; 
+    char p;  //虽然占用一字节，但是会被补齐成为四字节
+}; 
+// 32-bit: sizeof(CBase)=8；
+// 64-bit: sizeof(CBase)=8；
+```
 
 ![Alt text](image-22.png)
 
@@ -409,6 +418,7 @@ private:
     T m_age;
 };
 
+//请特别注意这里的template，是函数推断返回类型的一个重要点，在下面使用时不用指定返回类型而可以直接推断出返回的类型，因此该函数模板可以使用到任何经过运算符重载的类上
 template<class class_type>
 inline
 const class_type& Min(const class_type& A, const class_type& B) {
