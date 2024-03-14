@@ -479,6 +479,7 @@ private:
 ### 运算符重载的本质
 ```c++
 //一般理解的写法
+/*
 class Complex{
 public:
   Complex Addfunc(const Complex& p){
@@ -497,6 +498,25 @@ void test(){
   ...
   Complex p3 = p1.Addfunc(p2);
 }
+*/
+
+class Complex{
+public:
+    Complex& addFunc(const Complex& p){
+        this->real += p.real;
+        return *this;
+    }
+
+private:
+    int real;
+};
+
+void test(){
+    Complex p1 = new Complex(10);
+    Complex p2 = new Complex(20);
+    p2.addFunc(p1);
+}
+
 
 
 //调用库给出的operator的写法
@@ -531,7 +551,7 @@ __doapl (complex* ths, const complex& r)  //注意这里加入const的原因应�
   return *ths;
 }
  
-inline complex&
+inline complex&         //在外部定义类成员函数
 complex::operator += (const complex& r)
 {
   return __doapl (this, r);
@@ -544,10 +564,61 @@ void test(){
   complex p2 += p1; //p2调用+=成员，p2在operator += 中是this
 }
 ```
+总结该段代码，在定义类时，可以先声明该类中的成员函数，而后在为函数作出定义。至于为什么定义了operator时内部是去再调用一个系统函数这种做法是为什呢现在还是不知道。
 
 可以重载的格式：
 
 ![Alt text](image-35.png)
+
+再来一组理解浅拷贝和深拷贝
+
+浅拷贝是一种对象复制方式，其中只复制对象的成员变量值，而不复制它们所指向的资源。这意味着多个对象可能会共享相同的资源，包括动态分配的内存、文件句柄等。浅拷贝通常通过默认的拷贝构造函数和拷贝赋值运算符来实现。在浅拷贝中，当一个对象的资源被释放，其他对象可能会引发未定义的行为，因为它们仍然引用相同的资源。
+```c++
+class ShallowCopy {
+public:
+    int* data;
+ 
+    ShallowCopy(const ShallowCopy& other) {    //构造函数
+        data = other.data;  // 浅拷贝，共享相同的内存
+    }
+};
+```
+
+深拷贝是一种对象复制方式，其中对象的成员变量值被复制，同时资源也被复制，每个对象都有自己独立的资源副本。这确保了对象之间的数据独立性，不会相互干扰。深拷贝通常需要手动实现拷贝构造函数和拷贝赋值运算符。
+```c++
+class DeepCopy {
+public:
+    int* data;
+ 
+    DeepCopy(const DeepCopy& other) {
+        data = new int(*(other.data));  // 深拷贝，创建新的内存副本
+    }
+};
+```
+
+```c++
+class DeepCopy {
+public:
+    int* data;
+ 
+    DeepCopy(const DeepCopy& other) {
+        data = new int(*(other.data));
+    }
+ 
+    DeepCopy& operator=(const DeepCopy& other) {   //注意这个重载
+        if (this != &other) {
+            delete data;  // 释放当前资源
+            data = new int(*(other.data));  // 深拷贝，创建新的内存副本
+        }
+        return *this;
+    }
+ 
+    ~DeepCopy() {
+        delete data;  // 释放资源
+    }
+};
+```
+
 
 ### 链式编程
 同样举例为上面的例子：
@@ -581,9 +652,9 @@ new时会在堆区分配所需大小的内存空间，在这片空间的前后�
 ![Alt text](image-24.png)
 
 ### 静态变量和静态函数的讨论
-在一般非静态成员函数中系统会自动分配this指针，每次一个新的对象调用该函数时，创建的this指针指向都是不一样的，都是创建了新的地址和空间（浅拷贝除外）。
+**在一般非静态成员函数中系统会自动分配this指针，每次一个新的对象调用该函数时，创建的this指针指向都是不一样的，都是创建了新的地址和空间（浅拷贝除外）。**
 
-但static变量是存在全局区的，所有调用都指向同一个地址，一个对象对它做的改变，在其他对象中也会受到影响。
+**但static变量是存在全局区的，所有调用都指向同一个地址，一个对象对它做的改变，在其他对象中也会受到影响。**
 
 静态函数没有this指针，调用它的对象是指不到自己的，所以静态函数只能用于处理静态变量。
 
@@ -634,6 +705,8 @@ complex<int> c2(2,6);
 ```
 
 函数模板：函数只是一个半成品，只定义功能，而不需要管进来和返回的是什么类，之后再指定。使用时函数只用传递进相应的类型就可以实现功能输出。
+
+注意下图中的`const T& min()`，可是常量函数书写方法不是`返回类型 函数名 参数 const`，比如`void writeme(int i) const { me = i; } `吗？
 
 ![Alt text](image-25.png)
 
@@ -689,12 +762,36 @@ double d = 4 + f; //其含义为：编译器寻找上面的f的定义，发现�
 
 ```c++
 //考虑上图中的使用方法：
-list<Foo>::iterator tie;  
+list<Foo>::iterator tie = a.begin();  
 *tie;  //需要返回节点的data
 tie->method();  //需要返回节点的指针
 ```
 
 仿函数就是重载（）符号，在使用时看起来像对象是一个函数的样子：class A（），所以叫仿函数。仿函数与构造函数不同，前面是需要加入返回参数类型的。
+
+```c++
+class Compare {
+private:
+    int m_Number;
+public:
+    Compare(int num) : m_Number(num){}
+    
+    bool operator()(int other)  //仿函数，可以直接使用cmp(xxx)来直接返回对比结果
+    {
+        return m_Number > other;
+    }
+
+};
+
+int main()
+{
+    Compare cmp(10);
+    std::cout << cmp(11) << std::endl;
+    std::cout << cmp(9) << std::endl;
+    std::cin.get();
+    return 0;
+}
+```
 
 仿函数的优点在于：可以使用模板使得函数非常灵活，能被不同的类调用。如果是使用class构造函数来定义，那结果返回还要多出定义一个方法来返回值，而仿函数可以直接名称加括号使用，仿函数速度快，效率高。
 
@@ -723,6 +820,82 @@ Person<string*> person;  //类模板和函数模板的区别：类模板使用�
 ```
 
 ![Alt text](image-36.png)
+
+关于特化的一个用例：
+实现一个通用的拷贝函数？
+
+```c++
+template<class T>
+void Copy(T* dst, const T* src, size_t size){
+	memcpy(dst, src, sizeof(T)*size);
+}
+```
+上述代码虽然对于任意类型的空间都可以进行拷贝，但是如果拷贝自定义类型对象就可能会出错，因为自定义类型对象有可能会涉及到深拷贝(比如string)，而memcpy属于浅拷贝。如果对象中涉及到资源管理，就只能用赋值。
+
+```c++
+template<class T>
+void Copy(T* dst, const T* src, size_t size, bool flag){
+	if(flag)
+		memcpy(dst, src, sizeof(T)*size);
+	else{
+		for(size_t i = 0; i < size; ++i)
+		dst[i] = src[i];
+	}
+}
+```
+只要flag来选就好，但是如何进行判断哪些是系统的类型，哪些是自定义的类型呢？通过类型萃取。
+
+```c++
+// 代表内置类型
+struct TrueType{
+	static bool Get(){
+		return true ;
+	}
+};
+
+// 代表自定义类型
+struct FalseType{
+	static bool Get(){
+		return false ;
+	}
+};
+
+template<class T>
+struct TypeTraits{
+	typedef FalseType IsPODType;
+};
+
+// 所有内置类型都需要特化一下：
+template<>
+struct TypeTraits<char>{
+	typedef TrueType IsPODType;
+};
+
+template<>
+struct TypeTraits<short>{
+	typedef TrueType IsPODType;
+};
+
+template<>
+struct TypeTraits<int>{
+	typedef TrueType IsPODType;
+};
+
+template<>
+struct TypeTraits<long>{
+	typedef TrueType IsPODType;
+};
+
+template<class T>
+void Copy(T* dst, const T* src, size_t size){
+	if(TypeTraits<T>::IsPODType::Get())   //萃取类型
+		memcpy(dst, src, sizeof(T)*size);
+	else{
+		for(size_t i = 0; i < size; ++i)
+			dst[i] = src[i];
+	}
+}
+```
 
 
 ### 继承中调用虚函数
@@ -901,7 +1074,7 @@ vector<int>::iterator() //在方法后面加个小括号
 //计数算法
 template<class InputIterator, class T>
 typename iterator_traits<InputIterator>::difference_type count(InputIterator first, InputIterator last, const T& value) {
-  typename iterator_traits<InputIterator>::difference_type n = 0;
+  typename iterator_traits<InputIterator>::difference_type n = 0;  //注意书写difference_type的原因是萃取机typedef时的统一接口，无论是什么类型的int or double等，增加了泛化能力。typename是指定该名称为类或者参数类型，而不是一个函数。
   for (; first != last; ++first) {
     if (*first == value) ++n;
   }
@@ -983,3 +1156,9 @@ class vector {
 有趣的tuple，可以接收任意数量任意类型的对象作为容器元素，其实现方法是：递归继承
 
 ![Alt text](image-58.png)
+
+
+# 复习总结
+* C++语言基本，包括数据类型（存储空间大小，书写赋值方法），基本语法（书写命名规范、STL函数、基本常用函数（字符串分割、C++11特性等）），面向对象的继承、多态等
+* C++源码和特性学习，C++库（泛化编程、容器数据结构、迭代器、萃取机、函数仿函数、分配器），基本技能（多态继承、偏特化、统一接口的typedef（特别是在函数中我只能看到迭代器中的typedef的接口，至于接口对端的类型是什么在传参实际使用时决定））
+* 设计模式（模式上手、模式框图）
