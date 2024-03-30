@@ -346,3 +346,184 @@ InnoDB 对 LRU 做了一些优化，我们熟悉的 LRU 算法通常是将最近
 
 将 LRU 链表 分为young 和 old 两个区域，加入缓冲池的页，优先插入 old 区域；页被访问时，才进入 young 区域，目的是为了解决预读失效的问题。
 当**「页被访问」且「 old 区域停留时间超过 innodb_old_blocks_time 阈值（默认为1秒）」**时，才会将页插入到 young 区域，否则还是插入到 old 区域，目的是为了解决批量数据访问，大量热数据淘汰的问题。
+
+
+
+# SQL语言
+## 数据库、表与项的查看创建和删除操作DDL
+开启可以使用终端
+```shell
+net start mysql80  #开启服务
+mysql -u root -p  #连接客户端
+```
+
+![alt text](image-204.png)
+
+```sql
+SHOW databases;  --看数据库
+create database if not exists my_test;  --创建数据库
+SHOW databases;
+USE my_test;   --使用数据库
+select database();   --切换数据库
+
+
+/*
+create table tb_user(
+	id int comment '编号',
+	name varchar(50) comment '姓名',
+	age int comment '年龄',
+	gender varchar(1) comment '性别'
+	) comment '用户表';
+    */
+show TABLES;   --显示库中有的表
+DESC tb_user   --显示具体的表
+```
+
+类型：
+
+![alt text](image-205.png)
+
+![alt text](image-206.png)
+
+定长字符串性能较好，变长字符串性能较差。
+
+示例：
+
+用户名：username varchar(50)
+
+性别：gender char(1)
+
+![alt text](image-207.png)
+
+示例：
+
+生日：birthday date
+
+```sql
+ALTER TABLE tb_user ADD nickname varchar(20) COMMENT '昵称';  --添加表项
+
+ALTER TABLE tb_user CHANGE nickname username varchar(30) COMMENT '昵称';  --改变项的类型和名称
+
+ALTER TABLE tb_user DROP username; --删除项
+
+ALTER TABLE tb_user RENAME TO emp; --改表名
+
+DROP TABLE IF EXISTS emp;  --删除表
+
+TRUNCATE TABLE emp;  --删除并重建该表
+
+```
+
+## DML数据操作语言
+```sql
+INSERT
+UPDATE
+DELETE
+```
+
+![alt text](image-208.png)
+
+```sql
+INSERT INTO employee(id,workno,name,gender,age,idcard,entrydate) values(1,'1','Itcast','男',10,'123456789012345678','2000-01-01');
+
+insert into emp values(3,'3','Itcast','男',10,'12345','2000-01-01');  --另外一种方法
+
+
+UPDATE emp SET name = 'ty', gender = '男' where id = 1;
+
+DELETE FROM emp WHERE gender = '女';
+```
+
+
+## DQL数据查询语言
+```sql
+SELECT
+	字段列表
+FROM
+	表名字段
+WHERE
+	条件列表
+GROUP BY
+	分组字段列表
+HAVING
+	分组后的条件列表
+ORDER BY
+	排序字段列表
+LIMIT
+	分页参数
+
+--前期工作
+create table emp (
+    id int comment '编号',
+    workno varchar(10) comment '工号',
+    name varchar(10) comment '姓名',
+    gender char(1) comment '性别',
+    age tinyint unsigned comment '年龄',
+    idcard char(18) comment '身份证号',
+    workaddress varchar(50) comment '工作地址',
+    entrydate date comment '入职时间'
+) comment '员工表';
+
+INSERT INTO emp (id, workno, name, gender, age, idcard,workaddress, entrydate)
+VALUES 
+(1,'1','柳岩','女',20,'123456789012345678' ,'北京','2000-01-01'),
+(2,'2','张无忌','男',18,'123456789012345670' ,'北京' ,'2005-09-01'),
+(3,'3','韦一笑','男',38,'123456789712345670' ,'上海' ,'2005-08-01'),
+(4,'4','赵敏','女',18,'123456757123845670' ,'北京' ,'2009-12-01'),
+(5,'5','小昭','女',16,'123456769012345678' ,'上海' ,'2007-07-01'),
+(6,'6','杨道','男',28,'12345678931234567X' ,'北京' ,'2006-01-01'),
+(7,'7','范瑶','男',40,'123456789212345670' ,'北京' ,'2005-05-01'),
+(8,'8','黛绮丝','女',38,'123456157123645670' ,'天津' ,'2015-05-01'),
+(9,'9','范凉凉','女',45,'123156789012345678' ,'北京' ,'2010-04-01'),
+(10,'10','陈友谅','男',53,'123456789012345670' ,'上海' ,'2011-01-01'),
+(11,'11','张士诚','男',55,'123567897123465670' ,'江苏' ,'2015-05-01'),
+(12,'12','常遇春','男',32,'123446757152345670' ,'北京' ,'2004-02-01'),
+(13,'13','张三丰','男',88,'123656789012345678' ,'江苏' ,'2020-11-01'),
+(14,'14','灭绝','女',65,'123456719012345670' ,'西安' ,'2019-05-01'),
+(15,'15','胡青牛','男',70,'12345674971234567X' ,'西安' ,'2018-04-01'),
+(16,'16','周芷若','女',18,null ,'北京' ,'2012-06-01');
+
+```
+
+```sql
+SELECT name, workno, age FROM emp;
+SELECT DISTINCT workaddress as '工作地址' from emp;
+```
+
+![alt text](image-209.png)
+
+```sql
+# 查找年龄等于20的员工信息
+select * from emp where age = 20;
+
+# 查找年龄等于20的员工信息
+select * from emp where age < 20;
+
+# 查找身份证号为null的员工信息
+select * from emp where idcard is null;
+
+# 查找身份证号不是null的员工信息
+select * from emp where idcard is not null;
+
+# 查找年龄不等于88的员工信息
+select * from emp where age != 88;
+select * from emp where age <> 88;
+
+# 查询年龄在15到20岁之间的员工信息
+select * from emp where age > 15 and age < 20;
+select * from emp where age > 15 && age < 20;
+# 注意between为闭区间
+select * from emp where age between 15 and 20;
+
+# 查询性别为女且年龄小于25岁的员工
+select * from emp where gender = '女' and age < 25;
+select * from emp where age in(18,19,40);
+
+# 查询姓名为两个字的员工信息
+select * from emp where name like '__';
+
+# 查询身份证号最后一位为X的员工信息
+select * from emp where emp.idcard like '%X';
+select * from emp where emp.idcard like '_________________X';
+
+```
