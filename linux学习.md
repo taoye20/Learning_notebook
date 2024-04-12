@@ -20,6 +20,22 @@ find /sbin -perm +700 |xargs ls -l  //xargs捕获输出并管道操作
 ```
 
 ```c++
+//vim命令模式
+dd //删除单行
+ndd //删除多行
+
+yy //复制单行
+
+/  //查找内容 从光标所在行向下查找
+?  //查找内容 从光标所在行向上查找
+n  //下一个
+N  //上一个
+
+:1,10s/old/new/g   //替换 1 到 10 行所有 old 为 new（s 表示替换）
+:%s/old/new/g      //替换整个文件的 old 为 new（% 是一个变量，在这里代表整篇文档）
+```
+
+```c++
 //查看网络相关信息
 ifconfig
 
@@ -491,6 +507,10 @@ int lenth = lseek(fd, 0, SEEK_END);
 
 ![Alt text](image-74.png)
 
+硬连接就是通过这种方式实现的，但是硬连接无法连接目录和跨分区，因此少用。
+
+软连接是记录的源文件的路径，可以是绝对路径和相对路径，较为灵活。
+
 不同目录项创建文件有相同的inode号，那么就是读取的同一个地址，那么删除其中一个文件，inode记录减一，直到减到0，就没有文件用那个空间了。
 
 
@@ -631,15 +651,34 @@ MMU负责将虚拟内存映射到物理内存上去。
 
 MMU可以将虚拟内存看起来连续的内存映射到实际离散的物理内存中。为了安全，MMU会有个内存分级，分级时内核内容分配在0级，其他用户数据分配在3级。
 
-进程控制块结构体`struct task_struct`：
+对于操作系统，进程就是一个数据结构，我们直接来看 Linux 的源码：进程控制块结构体`struct task_struct`：
 ```c++
-pid  //进程id
-state  //进程状态
-...
+struct task_struct {
+    // 进程状态
+    long              state;
+    // 虚拟内存结构体
+    struct mm_struct  *mm;
+    // 进程号
+    pid_t             pid;
+    // 指向父进程的指针
+    struct task_struct __rcu  *parent;
+    // 子进程列表
+    struct list_head        children;
+    // 存放文件系统信息的指针
+    struct fs_struct        *fs;
+    // 一个数组，包含该进程打开的文件指针
+    struct files_struct     *files;
+};
 //进程工作目录，即shell运行时的目录
 //信号相关信息
 ```
-注意pdb中的文件描述符就是下面例子中返回的int fd，文件描述符父子进程共享这个非常关键，父进程open时fd=1，那子进程再打开，fd也是1.
+注意pdb中的文件描述符就是下面例子中返回的int fd，文件描述符父子进程共享这个非常关键，父进程open时fd=1，那子进程再打开，fd也是1，但是这种复制只会出现一次。
+
+![alt text](image-218.png)
+
+进程和线程在linux内核看来其实差别不大，但是共享的内容有所区别。
+
+![alt text](image-219.png)
 
 ### 环境变量
 ```c++
