@@ -264,6 +264,7 @@ update会导致锁，其余select会使用MVCC解决。因为update是直接取�
 ### buffer pool
 为了不每次执行事务都进行磁盘IO操作，有些数据会读到内存里
 ![alt text](image-155.png)
+
 读取的粒度为页。可以看到无论是数据还是undo页都在内存中，如果内存丢失则导致刚才所做的一切内容无效。
 
 ### redo log 

@@ -20,6 +20,12 @@ find /sbin -perm +700 |xargs ls -l  //xargs捕获输出并管道操作
 ```
 
 ```c++
+gdb attach 1234  //1234 is pid
+bt //backtrace，查看进程的堆栈，此时进程会暂停
+detach  //查看完后从进程分离让进程继续运行
+```
+
+```c++
 //vim命令模式
 dd //删除单行
 ndd //删除多行
@@ -40,7 +46,7 @@ N  //上一个
 ifconfig
 
 netstat -nlp   //查看TCP连接情况
-ss -ltnp
+ss -ltnp    //l监听，tTCP连接，uUDP连接，n以数字形式表示地址和端口
 
 ip route   //查看网络地址转发
 
@@ -551,7 +557,8 @@ struct dirent {
     char dname[]
 }
 ```
-
+### 查看在运行时调用文件的进程
+lsof /path/to/file  //显示使用该文件的进程号，用户，文件描述符。如果带W说明该进程正在写，lsof表示list open file
 
 ### 递归目录小程序
 ```c++

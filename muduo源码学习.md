@@ -24,6 +24,7 @@ DAL指任务队列+线程池，将数据访问任务进行整理并访问数据�
 # muduo
 ## 自己理解
 ### 模块分析
+![alt text](image-242.png)
 #### class Channel : noncopyable
 继承的noncopyable类：
 ```c++
@@ -436,7 +437,58 @@ void muduo::net::defaultMessageCallback(const TcpConnectionPtr&,
 
 ![alt text](image-237.png)
 
-针对上图中的handleRead函数：
+针对上图中的handleRead函数：提供给不同的对象在loop中运行，**其中acceptor固定好了如果发生读事件应该干什么**，因此对channel使用setReadCallback来设置如果发生事件，channel在loop循环中应该执行的任务。
+```c++
+Acceptor::Acceptor(EventLoop* loop, const InetAddress& listenAddr, bool reuseport)
+  : loop_(loop),
+    acceptSocket_(sockets::createNonblockingOrDie(listenAddr.family())),
+    acceptChannel_(loop, acceptSocket_.fd()),
+    listening_(false),
+    idleFd_(::open("/dev/null", O_RDONLY | O_CLOEXEC))
+{
+  assert(idleFd_ >= 0);
+  acceptSocket_.setReuseAddr(true);
+  acceptSocket_.setReusePort(reuseport);
+  acceptSocket_.bindAddress(listenAddr);
+  acceptChannel_.setReadCallback(
+      std::bind(&Acceptor::handleRead, this));
+}
+
+void Acceptor::handleRead()
+{
+  loop_->assertInLoopThread();
+  InetAddress peerAddr;
+  //FIXME loop until no more
+  int connfd = acceptSocket_.accept(&peerAddr);
+  if (connfd >= 0)
+  {
+    // string hostport = peerAddr.toIpPort();
+    // LOG_TRACE << "Accepts of " << hostport;
+    if (newConnectionCallback_)
+    {
+      newConnectionCallback_(connfd, peerAddr);  //注意这里，最后是调用了server创建connection，但是这里是没有切换线程的，都是在主线程内
+    }
+    else
+    {
+      sockets::close(connfd);
+    }
+  }
+  else
+  {
+    LOG_SYSERR << "in Acceptor::handleRead";
+    // Read the section named "The special problem of
+    // accept()ing when you can't" in libev's doc.
+    // By Marc Lehmann, author of libev.
+    if (errno == EMFILE)
+    {
+      ::close(idleFd_);
+      idleFd_ = ::accept(acceptSocket_.fd(), NULL, NULL);
+      ::close(idleFd_);
+      idleFd_ = ::open("/dev/null", O_RDONLY | O_CLOEXEC);
+    }
+  }
+}
+```
 
 ```c++
 void TcpConnection::handleRead(Timestamp receiveTime)  //当子loop中读事件发生后，调用channel回调函数，即调用了connection中注册的这个函数
@@ -494,7 +546,10 @@ ssize_t Buffer::readFd(int fd, int* saveErrno)
 ```
 
 剖析这个函数是因为这个函数的设计有可取之处。这个readFd巧妙的设计，可以让用户一次性把所有TCP接收缓冲区的所有数据全部都读出来并放到用户自定义的缓冲区Buffer中。
+
 用户自定义缓冲区Buffer是有大小限制的，我们一开始不知道TCP接收缓冲区中的数据量有多少，如果一次性读出来会不会导致Buffer装不下而溢出。所以在readFd( )函数中会在栈上创建一个临时空间extrabuf，然后使用readv的分散读特性，将TCP缓冲区中的数据先拷贝到Buffer中，如果Buffer容量不够，就把剩余的数据都拷贝到extrabuf中，然后再调整Buffer的容量(动态扩容)，再把extrabuf的数据拷贝到Buffer中。当这个函数结束后，extrabuf也会被释放。另外extrabuf是在栈上开辟的空间，速度比在堆上开辟还要快。
+
+注意：readv函数的读取方式。这样实现了将很大的一次write复制到buffer中，一次读事件读出所有内容，满足了ET模式下的读取需求而不用检测了如果没读完而多次调用write。
 
 #### 连接断开
 被动断开连接：
@@ -502,6 +557,8 @@ ssize_t Buffer::readFd(int fd, int* saveErrno)
 TcpConnection::handleRead( )函数内部调用了Linux的函数readv( )，当readv( )返回0的时候，服务端就知道客户端断开连接了。然后就接着调用TcpConnection::handleClose( )。
 
 ![alt text](image-238.png)
+
+请将上图中的shareptr的引用计数在每一步标注！（注意赋值时，share form this到底会不会增加引用计数，答案为会）答案：在conn智能指针创建时放入了map，map在堆上所以生命周期还在一直保存着（通过拷贝构造在map上，引用计数在创建时为2，）
 
 TcpServer::removeConnection( )函数调用了remvoveConnectionInLoop( )函数，该函数的运行是在MainEventLoop线程中执行的，这里涉及到线程切换技术。
 
@@ -517,6 +574,8 @@ TcpServer::removeConnection( )函数调用了remvoveConnectionInLoop( )函数，
 
 但是这里面其实有一个问题需要解决，TcpConnection::connectDestroyed()函数的执行以及这个TcpConnection对象的堆内存释放操作不在同一个线程中运行，所以要考虑怎么保证一个TcpConnectino对象的堆内存释放操作是在TcpConnection::connectDestroyed()调用完后。
 这个析构函数巧妙**利用了共享智能指针的特点**，当没有共享智能指针指向这个TcpConnection对象时（引用计数为0），这个TcpConnection对象就会被析构删除（堆内存释放）。
+
+这么思考，创建并管理connection生命周期的是server，那么在结束delete时理应主线程中的server进行，但是由于如果使用主线程直接deleteconnect对象没有办法保证对象释放操作是先主线程释放了还是先TCP自己进行destroy一些参数，因此采用了这种方法，即让connection自己析构自己。
 
 如果不管不顾，就只是直接结束进程的话，那么主线程用共享指针new出来的对象就无法正确的回收。
 
@@ -661,6 +720,168 @@ destruct
 
 ```
 
+#### 关于noncopyable继承
+```c++
+class EventLoop : noncopyable
+{...}
+
+
+class noncopyable
+{
+ public:
+  noncopyable(const noncopyable&) = delete;  //禁用拷贝构造函数，赋值函数，并私有继承给其他类
+  void operator=(const noncopyable&) = delete;
+
+ protected:
+  noncopyable() = default;
+  ~noncopyable() = default;
+};
+```
+
+父类将拷贝构造和赋值构造声明为public，构造和析构声明为protected，并私有继承给派生类，那么在派生类中的这些函数是什么权限，为什么这么做。
+
+首先：private继承方式
+* 基类中的所有 public 成员在派生类中均为 private 属性；
+* 基类中的所有 protected 成员在派生类中均为 private 属性；
+* 基类中的所有 private 成员在派生类中不能使用。
+
+这表明继承都是子类中想要使用父类成员函数的权限。（包括拷贝构造和赋值构造函数）
+
+其次：protected只是防止用户直接创建父类，但是允许子类调用父类的析构函数。但是这里父类析构函数没有写成虚函数，也就是如果使用多态则会出现调用的是父类的析构函数。
+
+看这个代码：
+```c++
+#include <iostream>
+using namespace std;
+
+class Father{
+public:
+    Father(const Father&) = default;
+    Father& operator=(const Father&) = default;
+
+protected:
+    Father() = default;
+    ~Father(){
+        cout << "调用父类析构函数" << endl;
+    }
+};
+
+class Child : private Father{
+public:
+    //构造函数
+    Child(){
+        cout << "调用子类构造函数" << endl;
+    }
+    Child(int val) : _val(val){
+        cout << "调用子类构造函数(初始化列表)" << endl;
+    }
+    // Child(int&& val) : _val(val){
+    //     cout << "使用右值引用" << endl;
+    // }
+
+    void setVal(int val){
+        _pval = new int(val);
+        _val = *_pval;
+    }
+
+    int getVal(){
+        return _val;
+    }
+
+    ~Child(){
+        if(_pval != nullptr){
+            delete _pval;
+            cout << "内存销毁" << endl;
+        }
+        cout << "调用子类析构函数" << endl;
+    }
+
+private:
+    int _val;
+    int* _pval = nullptr;
+};
+
+int main(){
+    int v = 20;
+    Child child1(10);
+    Child child2(v);
+    Child child3;
+    child3.setVal(30);
+    //该代码依然可以正常delete掉new出来的对象
+    //Father* child4 = new Child(40);  //报错：不允许对不可访问的基类 "Father" 进行转换，这就是使用protected的原因
+    
+    return 0;
+}
+
+```
+
+在这个过程中，如果基类的析构函数是虚函数，那么会根据对象的动态类型来调用适当的析构函数，即派生类的析构函数。但是，即使基类的析构函数不是虚函数，派生类的析构函数仍然会被正确地调用，因为我使用的是Child创建的。
+
+然而，如果你希望通过基类指针或引用来删除派生类对象时，必须将基类的析构函数声明为虚函数。这样可以确保通过基类指针或引用删除派生类对象时，会调用正确的析构函数，从而避免内存泄漏和未定义行为。
+
+注意：如果派生类中申请了内存空间，并在其析构函数中对这些内存空间进行释放。假设基类中采用的是非虚析构函数，当删除**基类指针**指向的派生类对象时就不会触发动态绑定，因而只会调用基类的析构函数，而不会调用派生类的析构函数。那么在这种情况下，派生类中申请的空间就得不到释放从而产生内存泄漏。这是为什么用protected的关键原因，为了阻止使用`Father* child4 = new Child(40);`来创建对象。
+
+#### 定时器timer
+在muduo的定时器系统中，一共由四个类：Timestamp，Timer，TimeId，TimerQueue组成。其中最关键的是Timer和TimerQueue两个类。该项目中没有使用Timeld类。
+
+TimerQueue类，是整个定时器设施的核心，其他三个类简介其作用。 其中Timestamp是一个以int64_t表示的微秒级绝对时间，而Timer则表示一个定时器的到时事件，是否具有重复唤醒的时间等，TimerId表示在在TimerQueue中对Timer的索引。
+
+①：Timer类：Timer类包含了一个超时时间戳和一个回调函数。当超时时间戳到达时，调用回调函数出发定时事件。
+
+②：TimerQueue类：TimerQueue类是一个基于事件戳排序的定时器容器。它使用了最小堆（MinHeap）数据结构来保证定时器按照超时时间的顺序进行排列。TimerQueue类提供了添加、删除和获取最近超时的定时器的接口。
+
+③：EventLoop类：EventLoop类是muduo网络库的核心组件，负责事件的循环和处理。其中包括定时器事件的管理。EventLoop有一个成员变量TimerQueue timerQueue_，用于存储定时器对象。EventLoop会在事件循环中监测定时器队列中最近超时的定时器，并调用其回调函数。
+
+底层使用的库函数：
+```c++
+#include <sys/timerfd.h>
+
+int timerfd_create(int clockid, int flags);
+
+int timerfd_settime(int fd, int flags,
+				   const struct itimerspec *new_value,
+				   struct itimerspec *old_value);
+
+int timerfd_gettime(int fd, struct itimerspec *curr_value);
+```
+```
+clockid	   时间类型一般使用CLOCK_REALTIME、CLOCK_MONOTONIC、CLOCK_BOOTTIME_ALARM（可唤醒系统）
+flags	     为0或者O_CLOEXEC/O_NONBLOCK
+返回值	    timerfd（文件描述符）
+
+timerfd_gettime()	获得定时器距离下次超时还剩下的时间。如果调用时定时器已经到期，并且该定时器处于循环模式（设置超时时间时it_interval不为0），那么调用此函数之后定时器重新开始计时
+```
+当定时器超时，read读事件发生即可读，返回超时次数（从上次调用timerfd_settime()启动开始或上次read成功读取开始），它是一个8字节的unit64_t类型整数，如果定时器没有发生超时事件，则read将阻塞；若timerfd为阻塞模式，否则返回EAGAIN 错误（O_NONBLOCK模式）；
+
+```c++
+//timer类构造函数
+  Timer(TimerCallback cb, Timestamp when, double interval)
+    : callback_(std::move(cb)),//设置超时事件回调函数
+      expiration_(when), //下次超时时间
+      interval_(interval), //超时时间间隔，如果是一次性的计时则该值为0
+      repeat_(interval > 0.0),//是否可重复计时标志位
+      sequence_(s_numCreated_.incrementAndGet())
+  { }
+
+```
+
+![alt text](image-244.png)
+
+```c++
+//重要，如何把时间队列添加到事件响应
+TimerQueue::TimerQueue(EventLoop* loop)
+  : loop_(loop),
+    timerfd_(createTimerfd()),
+    timerfdChannel_(loop, timerfd_),
+    timers_(),
+    callingExpiredTimers_(false)
+{
+  timerfdChannel_.setReadCallback(
+      std::bind(&TimerQueue::handleRead, this));
+  // we are always reading the timerfd, we disarm it with timerfd_settime.
+  timerfdChannel_.enableReading();
+}
+```
 
 ### cmake学习
 
@@ -715,12 +936,19 @@ add_executable(simple_echo echo/echo.cc echo/main.cc)  //生成执行文件simpl
 target_link_libraries(simple_echo muduo_net)     //将库文件添加到可执行文件上
 ```
 
-命令选择库
+命令选择库，在根目录的cmake中，也就是顶级cmake中：
 ```cmake
 # only build examples if this is the main project
 if(CMAKE_PROJECT_NAME STREQUAL "muduo")
-  option(MUDUO_BUILD_EXAMPLES "Build Muduo examples" ON)
+  option(MUDUO_BUILD_EXAMPLES "Build Muduo examples" ON)  #选择表示提供用户可以选择的选项。这个选项缺省值为 ON，用户可以更改这个值。
 endif()
 
-
+if(MUDUO_BUILD_EXAMPLES)
+  add_subdirectory(contrib)
+  add_subdirectory(examples)
+else()
+  if(CARES_INCLUDE_DIR AND CARES_LIBRARY)
+    add_subdirectory(examples/cdns)
+  endif()
+endif()
 ```
