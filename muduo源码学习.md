@@ -59,6 +59,138 @@ protected:
 
 上面代码也可以拓展到copyable类。
 
+题外话：
+```c++
+class Father{
+public:
+    Father(const Father&) = default;
+    Father& operator=(const Father&) = default;
+
+protected:
+    Father() = default;
+    ~Father(){
+        cout << "调用父类析构函数" << endl;
+    }
+};
+
+class Child : private Father{
+public:
+    //构造函数
+    Child(){
+        cout << "调用子类构造函数" << endl;
+    }
+    Child(int val) : _val(val){
+        cout << "调用子类构造函数(初始化列表)" << endl;
+    }
+    // Child(int&& val) : _val(val){
+    //     cout << "使用右值引用" << endl;
+    // }
+
+    void setVal(int val){
+        _pval = new int(val);
+        _val = *_pval;
+    }
+
+    int getVal(){
+        return _val;
+    }
+
+    ~Child(){
+        if(_pval != nullptr){
+            delete _pval;
+            cout << "内存销毁" << endl;
+        }
+        cout << "调用子类析构函数" << endl;
+    }
+
+private:
+    int _val;
+    int* _pval = nullptr;
+};
+
+int main(){
+    int v = 20;
+    Child child1(10);
+    Child child2(v);
+    Child child3;
+    child3.setVal(30);
+    //该代码依然可以正常delete掉new出来的对象
+
+    return 0;
+}
+
+
+//输出
+调用子类构造函数(初始化列表)
+调用子类构造函数(初始化列表)
+调用子类构造函数
+内存销毁
+调用子类析构函数
+调用父类析构函数
+调用子类析构函数
+调用父类析构函数
+调用子类析构函数
+调用父类析构函数
+```
+这个代码的输出，为什么父类没有写成虚函数，但是好像还是正常调用了子类的析构函数呢.
+
+好像一般是，如果用一个父类指针指向子类对象的时候，销毁这个父类指针的时候不会调用子类析构函数，但是实际上我们想要的是销毁子类。更多的是多态的时候才会出现这样的情况
+
+#### 关于epoll事件触发
+```c++
+Timestamp EPollPoller::poll(int timeoutMs, ChannelList* activeChannels)
+{
+  LOG_TRACE << "fd total count " << channels_.size();
+  int numEvents = ::epoll_wait(epollfd_,     //事件序列
+                               &*events_.begin(),
+                               static_cast<int>(events_.size()),
+                               timeoutMs);
+  int savedErrno = errno;
+  Timestamp now(Timestamp::now());
+  if (numEvents > 0)
+  {
+    LOG_TRACE << numEvents << " events happened";
+    fillActiveChannels(numEvents, activeChannels);   //channel装入vector
+    if (implicit_cast<size_t>(numEvents) == events_.size())
+    {
+      events_.resize(events_.size()*2);
+    }
+  }
+  else if (numEvents == 0)
+  {
+    LOG_TRACE << "nothing happened";
+  }
+  else
+  {
+    // error happens, log uncommon ones
+    if (savedErrno != EINTR)
+    {
+      errno = savedErrno;
+      LOG_SYSERR << "EPollPoller::poll()";
+    }
+  }
+  return now;
+}
+
+void EPollPoller::fillActiveChannels(int numEvents,
+                                     ChannelList* activeChannels) const
+{
+  assert(implicit_cast<size_t>(numEvents) <= events_.size());
+  for (int i = 0; i < numEvents; ++i)
+  {
+    Channel* channel = static_cast<Channel*>(events_[i].data.ptr);   //关注这里channel指针是在event的指针指着
+#ifndef NDEBUG
+    int fd = channel->fd();
+    ChannelMap::const_iterator it = channels_.find(fd);
+    assert(it != channels_.end());
+    assert(it->second == channel);
+#endif
+    channel->set_revents(events_[i].events);
+    activeChannels->push_back(channel);
+  }
+}
+```
+
 
 #### log日志记录
 ```c++
@@ -570,8 +702,6 @@ TcpServer::removeConnection( )函数调用了remvoveConnectionInLoop( )函数，
 
 所有上面的TcpServer::~TcpServer()函数就是干这事儿的，不断循环的让这个TcpConnection对象所属的SubEventLoop线程执行TcpConnection::connectDestroyed()函数，同时在MainEventLoop的TcpServer::~TcpServer()函数中调用item.second.reset()释放保管TcpConnection对象的共享智能指针，以达到释放TcpConnection对象的堆内存空间的目的。
 
-这里最精妙的就是使用了共享指针来放connection而不是独占指针，共享指针实现了值传递这个功能`TcpConnectionPtr conn(item.second);`，这件事实现了增加一计数，然后减少一计数，调用子线程中每个connection自己去析构，最后出了作用域，这个指针也消除，实现了清除。
-
 但是这里面其实有一个问题需要解决，TcpConnection::connectDestroyed()函数的执行以及这个TcpConnection对象的堆内存释放操作不在同一个线程中运行，所以要考虑怎么保证一个TcpConnectino对象的堆内存释放操作是在TcpConnection::connectDestroyed()调用完后。
 这个析构函数巧妙**利用了共享智能指针的特点**，当没有共享智能指针指向这个TcpConnection对象时（引用计数为0），这个TcpConnection对象就会被析构删除（堆内存释放）。
 
@@ -952,3 +1082,99 @@ else()
   endif()
 endif()
 ```
+
+### channel发生事件处理函数handleEvent的锁绑定
+```c++
+//
+void Channel::handleEvent(Timestamp receiveTime)
+{
+  std::shared_ptr<void> guard;
+  if (tied_)  //bool被绑定标识
+  {
+    guard = tie_.lock();  //tie_是weak_ptr
+    if (guard)
+    {
+      handleEventWithGuard(receiveTime);
+    }
+  }
+  else
+  {
+    handleEventWithGuard(receiveTime);
+  }
+}
+```
+
+
+### 对于大文件处理
+muduo的epoll是LT模式，水平触发，持续读直到读完数据，若未读完则持续触发（后面可以看到没有读完，则继续触发将事件排到任务队列中）
+
+而后读事件发生，处理代码应当是循环读取到自己设计的buffer中，而后返回应用层，但是在muduo的设计中，并没有这么去设计，看到这一部分代码：
+```c++
+void TcpConnection::handleRead(Timestamp receiveTime)
+{
+  loop_->assertInLoopThread();
+  int savedErrno = 0;
+  ssize_t n = inputBuffer_.readFd(channel_->fd(), &savedErrno);
+  if (n > 0)
+  {
+    messageCallback_(shared_from_this(), &inputBuffer_, receiveTime);
+  }
+  else if (n == 0)
+  {
+    handleClose();
+  }
+  else
+  {
+    errno = savedErrno;
+    LOG_SYSERR << "TcpConnection::handleRead";
+    handleError();
+  }
+}
+```
+其中事件到达，一次读取后就调用一次messagecallback。这个调用是指如果内核中出现了读事件，则事件被排到任务队列中，但是此时其实大文件还没有被传输完毕，内核中只保存有一段信息，该次读取只能读取出一部分（在应用层来看的文件的一部分，比如1000个字节）。tcp层持续在读入信息到内核中，在这一次epoll返回队列结束后，又触发同一个连接的读事件，接着又读到应用层中。
+
+为甚ET模式必须搭配非阻塞connect，是因为如果是阻塞connect，读取一次可能无法完全读取完所有信息，下次触发时会将这次的一起读出，产生干扰。但是如果使用循环读阻塞fd，那么读会被阻塞在最后一次读上，因此一定要使用非阻塞读。
+
+那么LT模式为社么选择非阻塞读，其实是因为可以在循环中不会被长文件读取阻塞，其余部分可以在应用层进行拼接。
+
+### 关于bind
+bind第一个参数是一个函数指针，第二个参数是该指针的实例指针，比如this。
+
+### 线程安全和可重入函数
+线程安全通常指不同线程对共享资源，全局变量和静态变量的访问修改。
+
+可重入函数：当一个执行流因为异常或者被内核切换而中断正在执行的函数而转为另外一个执行流时，当后者的执行流对同一个函数的操作并不影响前一个执行流恢复后执行函数产生的结果；
+
+不可重入函数条件(符合以下之一):
+
+(1)调用了malloc/free函数，因为malloc函数是用全局链表来管理堆的。
+
+(2)调用了标准I/O库函数，标准I/O库的很多实现都以不可重入的方式使用全局数据结构。
+
+(3)可重入体内使用了静态的数据结构。
+
+1)显式可重入函数
+
+如果所有函数的参数都是传值传递的（没有指针），并且所有的数据引用都是本地的自动栈变量（也就是说没有引用静态或全局变量），那么函数就是显示可重入的，也就是说不管如何调用，我们都可断言它是可重入的。
+
+(2)隐式可重入函数
+
+可重入函数中的一些参数是引用传递（使用了指针），也就是说，在调用线程小心地传递指向非共享数据的指针时，它才是可重入的。
+
+![alt text](image-245.png)
+
+区别：
+
+(1)可重入函数是线程安全函数的一种，其特点在于它们被多个线程调用时，不会引用任何共享数据。
+
+(2)线程安全是在多个线程情况下引发的，而可重入函数可以在只有一个线程的情况下来说。
+
+(3)线程安全不一定是可重入的，而可重入函数则一定是线程安全的。
+
+(4)如果一个函数中有全局变量，那么这个函数既不是线程安全也不是可重入的。
+
+(5)如果将对临界资源的访问加上锁，则这个函数是线程安全的，但如果这个重入函数若锁还未释放则会产生死锁，因此是不可重入的。
+
+(6)线程安全函数能够使不同的线程访问同一块地址空间，而可重入函数要求不同的执行流对数据的操作互不影响使结果是相同的。
+
+*关键在于可重入函数对所有线程执行是同样的结果，而线程安全是可以在访问临界资源时上锁*
